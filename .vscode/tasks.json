@@ -1,0 +1,109 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "LiveKit",
+      "type": "shell",
+      "command": "zsh \"${workspaceFolder}/scripts/start-livekit.sh\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "livekit",
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "starting LiveKit server|LiveKit 容器已"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "vc"
+      }
+    },
+    {
+      "label": "HotGo API (Air)",
+      "type": "shell",
+      "command": "air",
+      "options": {
+        "cwd": "${workspaceFolder}/server/server"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "hotgo",
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "listening|http server started|building|running"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "vc"
+      }
+    },
+    {
+      "label": "HotGo Web",
+      "type": "shell",
+      "command": "pnpm dev",
+      "options": {
+        "cwd": "${workspaceFolder}/server/web"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "hotgo-web",
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Local:|ready in"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "vc"
+      }
+    },
+    {
+      "label": "Client (Vite)",
+      "type": "shell",
+      "command": "pnpm dev --host 127.0.0.1 --port 5173",
+      "options": {
+        "cwd": "${workspaceFolder}/client"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Local:"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "vc"
+      }
+    },
+    {
+      "label": "启动全部",
+      "dependsOn": ["LiveKit", "HotGo API (Air)", "HotGo Web", "Client (Vite)"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "仅开会（不含管理后台）",
+      "dependsOn": ["LiveKit", "HotGo API (Air)", "Client (Vite)"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}

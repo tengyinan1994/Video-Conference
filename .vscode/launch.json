@@ -1,0 +1,70 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "LiveKit",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "zsh \"${workspaceFolder}/scripts/start-livekit.sh\"",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "HotGo API (Air)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "air",
+      "cwd": "${workspaceFolder}/server/server"
+    },
+    {
+      "name": "HotGo Web",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm dev",
+      "cwd": "${workspaceFolder}/server/web"
+    },
+    {
+      "name": "Client (Vite)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm dev --host 127.0.0.1 --port 5173",
+      "cwd": "${workspaceFolder}/client"
+    },
+    {
+      "name": "HotGo API (Delve 断点调试)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/server/server",
+      "args": ["http"],
+      "cwd": "${workspaceFolder}/server/server",
+      "showLog": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "启动全部",
+      "configurations": [
+        "LiveKit",
+        "HotGo API (Air)",
+        "HotGo Web",
+        "Client (Vite)"
+      ],
+      "stopAll": true,
+      "presentation": {
+        "order": 1,
+        "group": "video-conference",
+        "hidden": false
+      }
+    },
+    {
+      "name": "仅开会（不含管理后台）",
+      "configurations": ["LiveKit", "HotGo API (Air)", "Client (Vite)"],
+      "stopAll": true,
+      "presentation": {
+        "order": 2,
+        "group": "video-conference",
+        "hidden": false
+      }
+    }
+  ]
+}
