@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "video-conference-mysql": {
+      "type": "stdio",
+      "command": "/bin/zsh",
+      "args": [
+        "-lc",
+        "cd '/Users/chaoming/Documents/ProjectCode/tyn-demo/Video-Conference' && exec npx -y @bytebase/dbhub@latest --transport stdio --dsn \"$DBHUB_DSN\""
+      ],
+      "envFile": "${workspaceFolder}/.cursor/dbhub.env"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.zip
+
+# 本地密钥与 MCP DSN（勿提交）
+.cursor/dbhub.env
+.env
+.env.*
+!.env.example
+
+# 客户端构建产物
+client/node_modules/
+client/dist/
+
+# HotGo 管理后台依赖与构建
+server/web/node_modules/
+server/web/dist/
+
+# Go 临时产物（Air）
+server/server/tmp/
+server/server/main
+server/server/main.exe
