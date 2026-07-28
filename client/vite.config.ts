@@ -10,7 +10,11 @@ export default defineConfig({
     },
   },
   server: {
+    // 0.0.0.0：监听所有网卡，可用 http://10.64.3.83:5173 访问
+    // 注意：命令行若写了 --host 127.0.0.1 会覆盖这里，只会显示 Local
+    host: '0.0.0.0',
     port: 5173,
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',
