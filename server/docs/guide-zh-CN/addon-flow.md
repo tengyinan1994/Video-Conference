@@ -170,7 +170,7 @@ func (s *sSysAddonsConfig) UpdateConfigByGroup(ctx context.Context, in sysin.Upd
 如：127.0.0.1:8000/admin/hgexample/index/test
 ```
 
-- 对应控制器路径：`server/addons/hgexample/controller/admin/sys/index.go`
+- 对应控制器路径：`backend/addons/hgexample/controller/admin/sys/index.go`
 
 #### 前端API插件访问路径
 
@@ -179,7 +179,7 @@ func (s *sSysAddonsConfig) UpdateConfigByGroup(ctx context.Context, in sysin.Upd
 如：127.0.0.1:8000/api/hgexample/index/test
 ```
 
-- 对应控制器路径：`server/addons/hgexample/controller/api/index.go`
+- 对应控制器路径：`backend/addons/hgexample/controller/api/index.go`
 
 #### 前台页面插件访问路径
 
@@ -188,8 +188,8 @@ func (s *sSysAddonsConfig) UpdateConfigByGroup(ctx context.Context, in sysin.Upd
 如：127.0.0.1:8000/home/hgexample/index/test
 ```
 
-- 对应控制器路径：`server/addons/hgexample/controller/home/index.go`
-- 对应模板路径：`server/addons/hgexample/resource/public/template`
+- 对应控制器路径：`backend/addons/hgexample/controller/home/index.go`
+- 对应模板路径：`backend/addons/hgexample/resource/public/template`
 
 #### 静态资源插件访问路径
 
@@ -198,7 +198,7 @@ func (s *sSysAddonsConfig) UpdateConfigByGroup(ctx context.Context, in sysin.Upd
 如：127.0.0.1:8000/addons/hgexample/default
 ```
 
-- 对应资源路径：`server/addons/hgexample/resource/public`
+- 对应资源路径：`backend/addons/hgexample/resource/public`
 
 
 #### Websocket插件访问路径
@@ -208,7 +208,7 @@ func (s *sSysAddonsConfig) UpdateConfigByGroup(ctx context.Context, in sysin.Upd
 如：127.0.0.1:8000/socket/hgexample/index/test
 ```
 
-- 对应控制器路径：`server/addons/hgexample/controller/socket/index.go`
+- 对应控制器路径：`backend/addons/hgexample/controller/socket/index.go`
 
 
 ### 数据迁移

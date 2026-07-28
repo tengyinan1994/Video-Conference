@@ -71,7 +71,7 @@ gfcli:
 
 1、服务端：
 ```shell
-      cd server
+      cd backend
       
       # 设置国内代理，如果已经设置好了代理可以跳过
       go env -w GOPROXY=https://goproxy.io,direct

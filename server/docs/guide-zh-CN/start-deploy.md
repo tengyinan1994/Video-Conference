@@ -33,12 +33,12 @@ gfcli:
 
 1、 make一键编译 （确认已安装`make环境`）
 ```shell
-cd server &&  make build
+cd backend &&  make build
 ``` 
 
 2、 按步骤手动编译
 ```shell
-cd server                                             # 切换到服务端目录下
+cd backend                                             # 切换到服务端目录下
 rm -rf ./resource/public/admin/                       # 删除之前的web资源
 mkdir ./resource/public/admin/                        # 重新创建web资源存放目录，除首次编译后续可以跳过执行此步骤
 cd ../web && pnpm run build                               # 切换到web项目下，编译web项目
@@ -52,7 +52,7 @@ echo "y" | gf build                                   # 编译hotgo服务端
 3、分端编译 （多人开发时推荐）
 ```shell
 # 编译服务端
-cd server                                        # 切换到服务端目录下
+cd backend                                        # 切换到服务端目录下
 rm -rf ./resource/public/admin/                  # 删除之前的web资源，如果开发环境没有这个目录可以忽略此步骤
 echo "y" | gf build                              # 编译hotgo服务端
 

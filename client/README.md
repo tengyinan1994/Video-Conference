@@ -9,7 +9,7 @@
 先确保：
 
 1. LiveKit：`ws://localhost:7880`（`devkey` / `secret`）
-2. HotGo：`cd ../server/server && air`（`:8000`）
+2. HotGo：`cd ../server/backend && air`（`:8000`）
 3. 本客户端：
 
 ```bash

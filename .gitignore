@@ -22,6 +22,6 @@ server/web/node_modules/
 server/web/dist/
 
 # Go 临时产物（Air）
-server/server/tmp/
-server/server/main
-server/server/main.exe
+server/backend/tmp/
+server/backend/main
+server/backend/main.exe

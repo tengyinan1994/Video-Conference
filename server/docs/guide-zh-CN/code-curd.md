@@ -5,7 +5,7 @@
 
 ```shell
 # 服务端
-cd server 
+cd backend 
 gf run main.go
 
 # web端

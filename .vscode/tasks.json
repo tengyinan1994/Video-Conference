@@ -29,7 +29,7 @@
       "type": "shell",
       "command": "air",
       "options": {
-        "cwd": "${workspaceFolder}/server/server"
+        "cwd": "${workspaceFolder}/server/backend"
       },
       "isBackground": true,
       "problemMatcher": {

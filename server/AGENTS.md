@@ -21,7 +21,7 @@
 ## 后端目录结构
 
 ```
-server/
+backend/
 ├── addons/                       # 插件模块（每个插件独立微架构，见"插件开发"章节）
 │   ├── modules/                  # 隐式注册文件（每个插件一个 .go，仅含 import）
 │   └── <addonName>/              # 插件目录，与主模块结构镜像
@@ -246,7 +246,7 @@ const dict = useDictStore();
 每个插件拥有完整的独立微架构，与主模块结构镜像，但 **包路径前缀为 `hotgo/addons/<addonName>/`**：
 
 ```
-server/addons/<addonName>/
+backend/addons/<addonName>/
 ├── main.go           # 插件入口：定义 module 结构体，实现 Module 接口，init() 注册
 ├── global/
 │   ├── global.go     # 插件级全局变量
@@ -374,7 +374,7 @@ func init() {
 }
 ```
 
-参考实现：`server/addons/hgexample/router/genrouter/`
+参考实现：`backend/addons/hgexample/router/genrouter/`
 
 ### 插件调用主模块服务
 
@@ -414,7 +414,7 @@ contexts.GetAddonName(ctx)
 
 ### 插件隐式注册
 
-在 `server/addons/modules/` 下新建 `<addonName>.go`，内容仅含一行匿名导入：
+在 `backend/addons/modules/` 下新建 `<addonName>.go`，内容仅含一行匿名导入：
 
 ```go
 package modules
@@ -444,7 +444,7 @@ import _ "hotgo/addons/<addonName>"
 - [ ] `web/src/views/addons/<addonName>/index.vue` — 列表页
 - [ ] `web/src/views/addons/<addonName>/edit.vue` — 编辑页
 
-参考实现：`server/addons/hgexample/`（完整插件示例）、`server/resource/generate/default/addon/`（生成模板）
+参考实现：`backend/addons/hgexample/`（完整插件示例）、`backend/resource/generate/default/addon/`（生成模板）
 
 ---
 
@@ -590,12 +590,12 @@ disabled: !hasPermission(['/xxxModule/switch'])
 
 | 文件 | 说明 |
 |------|------|
-| `server/internal/consts/status.go` | 字典常量定义与注册标准写法 |
-| `server/api/admin/curddemo/curddemo.go` | API 契约标准写法 |
-| `server/internal/controller/admin/sys/curd_demo.go` | 薄控制器标准写法 |
-| `server/internal/logic/sys/curd_demo.go` | Logic 标准写法（含关联查询、导出、字段过滤） |
-| `server/internal/model/input/sysin/curd_demo.go` | 入参/出参模型标准写法 |
-| `server/internal/router/genrouter/curd_demo.go` | 主模块路由注册标准写法 |
+| `backend/internal/consts/status.go` | 字典常量定义与注册标准写法 |
+| `backend/api/admin/curddemo/curddemo.go` | API 契约标准写法 |
+| `backend/internal/controller/admin/sys/curd_demo.go` | 薄控制器标准写法 |
+| `backend/internal/logic/sys/curd_demo.go` | Logic 标准写法（含关联查询、导出、字段过滤） |
+| `backend/internal/model/input/sysin/curd_demo.go` | 入参/出参模型标准写法 |
+| `backend/internal/router/genrouter/curd_demo.go` | 主模块路由注册标准写法 |
 | `web/src/api/curdDemo/index.ts` | 前端 API 封装标准写法 |
 | `web/src/views/curdDemo/model.ts` | 前端 model 标准写法（含字典加载） |
 | `web/src/views/curdDemo/index.vue` | 列表页标准写法 |
@@ -605,17 +605,17 @@ disabled: !hasPermission(['/xxxModule/switch'])
 
 | 文件 | 说明 |
 |------|------|
-| `server/addons/hgexample/main.go` | 插件入口标准写法 |
-| `server/addons/hgexample/global/init.go` | 插件 global 标准写法 |
-| `server/addons/hgexample/router/admin.go` | 插件路由注册标准写法 |
-| `server/addons/hgexample/router/genrouter/init.go` | 插件 genrouter 标准写法 |
-| `server/addons/hgexample/router/genrouter/tenant_order.go` | 插件模块路由追加标准写法 |
-| `server/addons/hgexample/logic/sys/tenant_order.go` | 插件业务逻辑标准写法 |
-| `server/addons/hgexample/logic/sys/config.go` | 插件调用主模块服务标准写法 |
+| `backend/addons/hgexample/main.go` | 插件入口标准写法 |
+| `backend/addons/hgexample/global/init.go` | 插件 global 标准写法 |
+| `backend/addons/hgexample/router/admin.go` | 插件路由注册标准写法 |
+| `backend/addons/hgexample/router/genrouter/init.go` | 插件 genrouter 标准写法 |
+| `backend/addons/hgexample/router/genrouter/tenant_order.go` | 插件模块路由追加标准写法 |
+| `backend/addons/hgexample/logic/sys/tenant_order.go` | 插件业务逻辑标准写法 |
+| `backend/addons/hgexample/logic/sys/config.go` | 插件调用主模块服务标准写法 |
 
 代码生成模板：
-- 主模块 CRUD：`server/resource/generate/default/curd/`
-- 插件脚手架：`server/resource/generate/default/addon/`
+- 主模块 CRUD：`backend/resource/generate/default/curd/`
+- 插件脚手架：`backend/resource/generate/default/addon/`
 
 以上模板可参考逻辑，**禁止直接修改模板文件**。
 
@@ -811,8 +811,8 @@ s.Model(ctx).Fields(sysin.XxxUpdateFields{}).WherePri(in.Id).Data(in).Hook(hook.
 
 定时任务通过实现接口 + `init()` 注册，在后台「系统设置 → 定时任务」中配置执行策略：
 
-**主模块**：新建 `server/internal/crons/<name>.go`  
-**插件**：新建 `server/addons/<addonName>/crons/<name>.go`
+**主模块**：新建 `backend/internal/crons/<name>.go`  
+**插件**：新建 `backend/addons/<addonName>/crons/<name>.go`
 
 ```go
 package crons
@@ -844,8 +844,8 @@ func (c *cMyTask) Execute(ctx context.Context, parser *cron.Parser) (err error) 
 
 队列采用接口 + `init()` 注册，topic 统一定义在 `internal/consts/queue.go`（或对应模块 consts 文件）。
 
-**主模块**：新建 `server/internal/queues/<name>.go`  
-**插件**：新建 `server/addons/<addonName>/queues/<name>.go`
+**主模块**：新建 `backend/internal/queues/<name>.go`  
+**插件**：新建 `backend/addons/<addonName>/queues/<name>.go`
 
 ```go
 package queues
@@ -891,7 +891,7 @@ queue.SendDelayMsg(consts.QueueMyTopic, data, 10) // redis: 延迟秒数；rocke
 
 ## 工具库使用规范
 
-**后端（`server/utility/`）优先使用已有工具，禁止重复造轮子：**
+**后端（`backend/utility/`）优先使用已有工具，禁止重复造轮子：**
 
 | 包 | 用途 |
 |----|------|
@@ -922,7 +922,7 @@ queue.SendDelayMsg(consts.QueueMyTopic, data, 10) // redis: 延迟秒数；rocke
 - 表中必须含 `pid`、`level`、`tree` 字段（参见建表约定）
 - `pid`/`level`/`tree` 字段**由系统自动维护**，禁止在编辑表单中手动设置这三个字段
 - 前端列表页使用树形表格（`BasicTable` 的 `childrenKey` 或 `treeData` 模式），而非普通分页列表
-- 参考实现：`server/internal/logic/sys/tree_demo.go`、`web/src/views/develop/curd/treeDemo/`
+- 参考实现：`backend/internal/logic/sys/tree_demo.go`、`web/src/views/develop/curd/treeDemo/`
 
 ---
 

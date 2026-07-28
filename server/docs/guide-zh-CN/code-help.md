@@ -7,12 +7,12 @@
 
 ### fetching tables failed: SHOW TABLES: Error 1045 (28000): Access denied for user * (using password: YES)
 
-- 请去确认`server/manifest/config/config.yaml`和`server/hack/config.yaml`下的数据库配置一致并且权限正确
+- 请去确认`backend/manifest/config/config.yaml`和`backend/hack/config.yaml`下的数据库配置一致并且权限正确
 - 参考：[生成配置](code-config.md)
 
 
 ### 为什么后台找不到开发工具菜单
 
-- 请去确认`server/manifest/config/config.yaml`中的`system.mode`不为`product`。product模式下后台【开发工具】菜单自动隐藏
+- 请去确认`backend/manifest/config/config.yaml`中的`system.mode`不为`product`。product模式下后台【开发工具】菜单自动隐藏
 
 

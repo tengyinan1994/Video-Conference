@@ -288,7 +288,7 @@ INSERT INTO `hg_test_table` (`id`, `category_id`, `title`, `description`, `conte
         clear: false
 ```
 
-2. 配置`server/manifest/config/config.yaml`,
+2. 配置`backend/manifest/config/config.yaml`,
 
 `database`配置如下：
 ```yaml
@@ -344,7 +344,7 @@ hggen:
 - 下面大致做一些替换步骤说明：
 
 1. 打开https://github.com/gogf/gf，找到你想要使用的版本`clone`下来
-2. 将`clone`代码中`gf/cmd/gf/internal/`目录覆盖到`server/internal/library/hggen/internal`
+2. 将`clone`代码中`gf/cmd/gf/internal/`目录覆盖到`backend/internal/library/hggen/internal`
 3. 将覆盖过来的目录文件中引入包名`github.com/gogf/gf/cmd/gf/v2/`批量改为`hotgo/internal/library/hggen/`
 4. 运行`go mod tidy`
 5. 运行`go run main.go`，如果没有报错，那么恭喜你已经完成了。如果有报错一般都是版本差异带来的影响，需要根据情况自行调整

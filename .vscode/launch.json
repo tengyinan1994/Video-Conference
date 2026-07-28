@@ -13,7 +13,7 @@
       "type": "node-terminal",
       "request": "launch",
       "command": "air",
-      "cwd": "${workspaceFolder}/server/server"
+      "cwd": "${workspaceFolder}/server/backend"
     },
     {
       "name": "HotGo Web",
@@ -34,9 +34,9 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/server/server",
+      "program": "${workspaceFolder}/server/backend",
       "args": ["http"],
-      "cwd": "${workspaceFolder}/server/server",
+      "cwd": "${workspaceFolder}/server/backend",
       "showLog": true
     }
   ],

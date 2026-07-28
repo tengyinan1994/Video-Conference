@@ -138,7 +138,7 @@ gfcli:
         clear: false
 ```
 
-2. 配置`server/manifest/config/config.yaml`,
+2. 配置`backend/manifest/config/config.yaml`,
 
 `database`配置如下：
 ```yaml

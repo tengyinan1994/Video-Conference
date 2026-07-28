@@ -15,7 +15,7 @@
 
 ### 配置文件
 
-国际化配置位于 `server/manifest/config/config.yaml` 文件中：
+国际化配置位于 `backend/manifest/config/config.yaml` 文件中：
 
 ```yaml
 # hotgo系统配置
@@ -29,7 +29,7 @@ system:
 
 ### 服务端使用
 
-多语言配置文件存放目录：`server/manifest/i18n`，您可以在该目录下添加自定义的语言映射文件。
+多语言配置文件存放目录：`backend/manifest/i18n`，您可以在该目录下添加自定义的语言映射文件。
 
 **使用示例：**
 

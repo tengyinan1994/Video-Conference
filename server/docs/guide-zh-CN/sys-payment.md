@@ -55,7 +55,7 @@ func main()  {
 
 
 ### 注册支付回调
-- 在文件`server/internal/logic/pay/notify.go` 加入你的业务订单分组回调方法，当订单支付成功验签通过后会自动进行回调，参考以下：
+- 在文件`backend/internal/logic/pay/notify.go` 加入你的业务订单分组回调方法，当订单支付成功验签通过后会自动进行回调，参考以下：
 
 ```go
 package global
@@ -97,6 +97,6 @@ func main()  {
 
 
 ### 其他
-- 由于各个支付平台中交易方式较多，如果目前已有的交易方式不满足你的支付场景需求，请自行参考gopay文档对文件`server/internal/library/payment/payment.go`中的`PayClient`接口实现进行扩展
+- 由于各个支付平台中交易方式较多，如果目前已有的交易方式不满足你的支付场景需求，请自行参考gopay文档对文件`backend/internal/library/payment/payment.go`中的`PayClient`接口实现进行扩展
 - gopay文档地址：https://github.com/go-pay/gopay
 

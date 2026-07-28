@@ -146,7 +146,7 @@ func main()  {
 }
 ```
 
-2. 在`server/internal/logic/middleware/response.go`中根据请求的独有特征进行单独的处理，兼容后续http处理。
+2. 在`backend/internal/logic/middleware/response.go`中根据请求的独有特征进行单独的处理，兼容后续http处理。
 
 #### 重写响应错误提示
 - 在实际开发中，我们可能想要隐藏一些敏感错误，返回给客户端友好的错误提示，但开发者同时又想需要看到真实的敏感错误。对此hotgo已经进行了过滤处理，下面是一个简单的例子：
