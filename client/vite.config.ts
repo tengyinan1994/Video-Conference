@@ -1,16 +1,21 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import basicSsl from '@vitejs/plugin-basic-ssl'
 import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    // 开发期自签证书：内网 IP 必须用 https 才有摄像头/麦/投屏权限
+    basicSsl(),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
   server: {
-    // 0.0.0.0：监听所有网卡，可用 http://10.64.3.83:5173 访问
+    // 0.0.0.0：监听所有网卡，可用 https://10.64.3.83:5173 访问
     // 注意：命令行若写了 --host 127.0.0.1 会覆盖这里，只会显示 Local
     host: '0.0.0.0',
     port: 5173,

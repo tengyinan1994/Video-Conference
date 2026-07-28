@@ -84,6 +84,17 @@ function mediaErrorMessage(err: unknown): string {
   if (message.includes('Failed to fetch') || message.includes('signal connection')) {
     return '无法连接 LiveKit 信令服务。请确认 livekit-server 已启动，或刷新后重试'
   }
+  if (
+    typeof window !== 'undefined' &&
+    !window.isSecureContext &&
+    (message.includes('getUserMedia') ||
+      message.includes('getDisplayMedia') ||
+      message.includes('Permission') ||
+      name === 'NotAllowedError' ||
+      name === 'SecurityError')
+  ) {
+    return '当前页面不是安全上下文（常见于 http://内网IP）。请使用 https://内网IP:5173 打开，或本机临时用 localhost'
+  }
   return message || '媒体连接失败'
 }
 
@@ -126,8 +137,8 @@ export function useLiveKitRoom() {
   const status = ref<ConnectionStatus>('idle')
   const errorMessage = ref('')
   const participants = ref<MediaParticipant[]>([])
-  const micEnabled = ref(true)
-  const cameraEnabled = ref(true)
+  const micEnabled = ref(false)
+  const cameraEnabled = ref(false)
   const screenSharing = ref(false)
   const chatMessages = ref<ChatMessage[]>([])
   /** 本地主视图钉选（每人自己选，不广播）；为多人同时共享时切换主画面预留 */
@@ -145,6 +156,8 @@ export function useLiveKitRoom() {
   )
 
   const qualityMap = new Map<string, QualityLevel>()
+  /** 是否已为枚举设备申请过媒体权限（默认关麦关摄像头时也要申请一次） */
+  let devicePermissionWarmed = false
 
   const isConnected = computed(() => status.value === 'connected')
 
@@ -339,32 +352,86 @@ export function useLiveKitRoom() {
     })
   }
 
+  async function ensureDevicePermission() {
+    if (devicePermissionWarmed) return
+    const local = room.value?.localParticipant
+    // 已开麦/摄像头说明权限在，无需再预热
+    if (local?.isMicrophoneEnabled || local?.isCameraEnabled) {
+      devicePermissionWarmed = true
+      return
+    }
+    try {
+      await warmUpMediaPermissions()
+      devicePermissionWarmed = true
+    } catch {
+      // 部分环境视频权限会拦整次；至少抢麦克风权限以便枚举
+      try {
+        const tracks = await createLocalTracks({ audio: true, video: false })
+        tracks.forEach((t: LocalTrack) => t.stop())
+        devicePermissionWarmed = true
+      } catch {
+        // 用户拒绝或非安全上下文（如 http://内网IP）时列表可能仍为空
+      }
+    }
+  }
+
   async function refreshDevices() {
     try {
-      const devices = await Room.getLocalDevices(undefined, true)
+      // 默认关麦关摄像头进房时从未要过权限，Chrome 会返回空列表或空 label
+      await ensureDevicePermission()
+
+      // 第二参数 false：权限已在 ensure 里处理；避免非安全上下文下 requestPermissions 卡住
+      const devices = await Room.getLocalDevices(undefined, false)
       audioInputs.value = devices
-        .filter((d) => d.kind === 'audioinput')
-        .map((d) => ({ deviceId: d.deviceId, label: d.label || `麦克风 ${d.deviceId.slice(0, 6)}` }))
+        .filter((d) => d.kind === 'audioinput' && d.deviceId)
+        .map((d) => ({
+          deviceId: d.deviceId,
+          label: d.label || `麦克风 ${d.deviceId.slice(0, 6)}`,
+        }))
       videoInputs.value = devices
-        .filter((d) => d.kind === 'videoinput')
-        .map((d) => ({ deviceId: d.deviceId, label: d.label || `摄像头 ${d.deviceId.slice(0, 6)}` }))
+        .filter((d) => d.kind === 'videoinput' && d.deviceId)
+        .map((d) => ({
+          deviceId: d.deviceId,
+          label: d.label || `摄像头 ${d.deviceId.slice(0, 6)}`,
+        }))
       audioOutputs.value = devices
-        .filter((d) => d.kind === 'audiooutput')
-        .map((d) => ({ deviceId: d.deviceId, label: d.label || `扬声器 ${d.deviceId.slice(0, 6)}` }))
+        .filter((d) => d.kind === 'audiooutput' && d.deviceId)
+        .map((d) => ({
+          deviceId: d.deviceId,
+          label: d.label || `扬声器 ${d.deviceId.slice(0, 6)}`,
+        }))
 
       const r = room.value
+      const pick = (active: string | undefined, list: MediaDeviceOption[]) => {
+        if (active && list.some((d) => d.deviceId === active)) return active
+        return list[0]?.deviceId || ''
+      }
       if (r) {
-        selectedMicId.value =
-          r.getActiveDevice('audioinput') || audioInputs.value[0]?.deviceId || ''
-        selectedCameraId.value =
-          r.getActiveDevice('videoinput') || videoInputs.value[0]?.deviceId || ''
-        selectedSpeakerId.value =
-          r.getActiveDevice('audiooutput') || audioOutputs.value[0]?.deviceId || ''
+        selectedMicId.value = pick(r.getActiveDevice('audioinput'), audioInputs.value)
+        selectedCameraId.value = pick(r.getActiveDevice('videoinput'), videoInputs.value)
+        selectedSpeakerId.value = pick(r.getActiveDevice('audiooutput'), audioOutputs.value)
+      } else {
+        selectedMicId.value = audioInputs.value[0]?.deviceId || ''
+        selectedCameraId.value = videoInputs.value[0]?.deviceId || ''
+        selectedSpeakerId.value = audioOutputs.value[0]?.deviceId || ''
       }
     } catch {
       // 权限未授予时列表可能为空
     }
   }
+
+  function bindDeviceChangeListener() {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.addEventListener) return
+    const onChange = () => {
+      void refreshDevices()
+    }
+    navigator.mediaDevices.addEventListener('devicechange', onChange)
+    onUnmounted(() => {
+      navigator.mediaDevices.removeEventListener('devicechange', onChange)
+    })
+  }
+
+  bindDeviceChangeListener()
 
   async function applySpeakerOutput() {
     const deviceId = selectedSpeakerId.value
@@ -397,6 +464,7 @@ export function useLiveKitRoom() {
 
     const wantMic = !!opts?.enableMic
     const wantCamera = !!opts?.enableCamera
+    devicePermissionWarmed = false
 
     const r = new Room({
       // 2K/Retina 上按更高像素密度要流，投屏文字更清晰
@@ -424,7 +492,8 @@ export function useLiveKitRoom() {
       qualityMap.set(r.localParticipant.identity, mapQuality(r.localParticipant.connectionQuality))
       rebuildParticipants()
       queueMicrotask(() => rebuildParticipants())
-      await refreshDevices()
+      // 设备枚举失败不阻断进房
+      void refreshDevices()
       status.value = 'connected'
     } catch (err) {
       status.value = 'error'
@@ -457,51 +526,66 @@ export function useLiveKitRoom() {
     const local = room.value?.localParticipant
     if (!local) return
     const next = !local.isMicrophoneEnabled
-    await local.setMicrophoneEnabled(next)
-    micEnabled.value = local.isMicrophoneEnabled
-    rebuildParticipants()
+    try {
+      await local.setMicrophoneEnabled(next)
+      micEnabled.value = local.isMicrophoneEnabled
+      rebuildParticipants()
+      if (local.isMicrophoneEnabled) void refreshDevices()
+    } catch (err) {
+      errorMessage.value = mediaErrorMessage(err)
+      throw err
+    }
   }
 
   async function toggleCamera() {
     const local = room.value?.localParticipant
     if (!local) return
     const next = !local.isCameraEnabled
-    await local.setCameraEnabled(next)
-    cameraEnabled.value = local.isCameraEnabled
-    rebuildParticipants()
+    try {
+      await local.setCameraEnabled(next)
+      cameraEnabled.value = local.isCameraEnabled
+      rebuildParticipants()
+      if (local.isCameraEnabled) void refreshDevices()
+    } catch (err) {
+      errorMessage.value = mediaErrorMessage(err)
+      throw err
+    }
   }
 
   async function toggleScreenShare() {
     const local = room.value?.localParticipant
     if (!local) return
     const next = !local.isScreenShareEnabled
-    if (next) {
-      await local.setScreenShareEnabled(
-        true,
-        {
-          // detail：偏锐利文字/UI；采集目标 2K@60
-          contentHint: 'detail',
-          resolution: {
-            width: 2560,
-            height: 1440,
-            frameRate: 60,
+    try {
+      if (next) {
+        await local.setScreenShareEnabled(
+          true,
+          {
+            contentHint: 'detail',
+            resolution: {
+              width: 2560,
+              height: 1440,
+              frameRate: 60,
+            },
           },
-        },
-        {
-          // 单层高码率，避免 simulcast 低档被人订到导致糊
-          simulcast: false,
-          screenShareEncoding: {
-            maxBitrate: 12_000_000,
-            maxFramerate: 60,
+          {
+            simulcast: false,
+            screenShareEncoding: {
+              maxBitrate: 12_000_000,
+              maxFramerate: 60,
+            },
+            degradationPreference: 'maintain-resolution',
           },
-          degradationPreference: 'maintain-resolution',
-        },
-      )
-    } else {
-      await local.setScreenShareEnabled(false)
+        )
+      } else {
+        await local.setScreenShareEnabled(false)
+      }
+      screenSharing.value = local.isScreenShareEnabled
+      rebuildParticipants()
+    } catch (err) {
+      errorMessage.value = mediaErrorMessage(err)
+      throw err
     }
-    screenSharing.value = local.isScreenShareEnabled
-    rebuildParticipants()
   }
 
   async function sendChat(text: string) {

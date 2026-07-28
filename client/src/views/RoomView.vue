@@ -217,6 +217,30 @@ async function onMuteAll() {
   }
 }
 
+async function onToggleMic() {
+  try {
+    await toggleMic()
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : '无法开关麦克风')
+  }
+}
+
+async function onToggleCamera() {
+  try {
+    await toggleCamera()
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : '无法开关摄像头')
+  }
+}
+
+async function onToggleScreenShare() {
+  try {
+    await toggleScreenShare()
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : '无法开关屏幕共享')
+  }
+}
+
 watch(
   chatMessages,
   async () => {
@@ -416,21 +440,25 @@ onMounted(() => {
       </div>
 
       <Space wrap>
-        <Button @click="toggleMic">
+        <Button @click="onToggleMic">
           <template #icon>
             <AudioMutedOutlined v-if="!micEnabled" />
             <AudioOutlined v-else />
           </template>
           {{ micEnabled ? '静音' : '取消静音' }}
         </Button>
-        <Button @click="toggleCamera">
+        <Button @click="onToggleCamera">
           <template #icon>
             <VideoCameraOutlined v-if="cameraEnabled" />
             <VideoCameraAddOutlined v-else />
           </template>
           {{ cameraEnabled ? '关摄像头' : '开摄像头' }}
         </Button>
-        <Button :type="screenSharing ? 'primary' : 'default'" :danger="screenSharing" @click="toggleScreenShare">
+        <Button
+          :type="screenSharing ? 'primary' : 'default'"
+          :danger="screenSharing"
+          @click="onToggleScreenShare"
+        >
           <template #icon>
             <DesktopOutlined />
           </template>
@@ -504,24 +532,35 @@ onMounted(() => {
 
     <Drawer
       v-model:open="chatOpen"
-      title="文字聊天"
+      title="聊天"
       placement="right"
       :width="360"
+      :body-style="{ padding: 0, display: 'flex', flexDirection: 'column', height: 'calc(100% - 55px)' }"
     >
-      <div ref="chatListEl" class="chat-list">
-        <div v-for="m in chatMessages" :key="m.id" class="chat-item" :class="{ mine: m.isLocal }">
-          <div class="chat-meta">{{ m.name }} · {{ new Date(m.ts).toLocaleTimeString() }}</div>
-          <div class="chat-text">{{ m.text }}</div>
+      <div class="chat-panel">
+        <div ref="chatListEl" class="chat-list">
+          <div
+            v-for="m in chatMessages"
+            :key="m.id"
+            class="chat-row"
+            :class="{ mine: m.isLocal }"
+          >
+            <div class="chat-meta">
+              <span class="chat-name">{{ m.name }}</span>
+              <span class="chat-time">{{ new Date(m.ts).toLocaleTimeString() }}</span>
+            </div>
+            <div class="chat-bubble">{{ m.text }}</div>
+          </div>
+          <div v-if="!chatMessages.length" class="chat-empty">还没有消息，打个招呼吧</div>
         </div>
-        <div v-if="!chatMessages.length" class="chat-empty">还没有消息，打个招呼吧</div>
-      </div>
-      <div class="chat-input">
-        <Input
-          v-model:value="chatDraft"
-          placeholder="输入消息，Enter 发送"
-          @pressEnter="onSendChat"
-        />
-        <Button type="primary" @click="onSendChat">发送</Button>
+        <div class="chat-input">
+          <Input
+            v-model:value="chatDraft"
+            placeholder="输入消息，Enter 发送"
+            @pressEnter="onSendChat"
+          />
+          <Button type="primary" @click="onSendChat">发送</Button>
+        </div>
       </div>
     </Drawer>
   </div>
@@ -765,39 +804,78 @@ onMounted(() => {
   font-size: 12px;
   margin-top: 2px;
 }
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
 .chat-list {
-  height: calc(100vh - 180px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding-bottom: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.chat-item {
-  margin-bottom: 12px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: #f8fafc;
+.chat-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 85%;
 }
-.chat-item.mine {
-  background: #e0f2fe;
+.chat-row.mine {
+  align-self: flex-end;
+  align-items: flex-end;
 }
 .chat-meta {
-  font-size: 11px;
-  color: #64748b;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   margin-bottom: 4px;
+  padding: 0 2px;
 }
-.chat-text {
-  word-break: break-word;
+.chat-row.mine .chat-meta {
+  flex-direction: row-reverse;
+}
+.chat-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+}
+.chat-time {
+  font-size: 11px;
+  color: #94a3b8;
+}
+.chat-bubble {
+  padding: 8px 12px;
+  border-radius: 12px 12px 12px 4px;
+  background: #f1f5f9;
   color: #0f172a;
+  word-break: break-word;
+  line-height: 1.45;
+  font-size: 14px;
+}
+.chat-row.mine .chat-bubble {
+  border-radius: 12px 12px 4px 12px;
+  background: #1677ff;
+  color: #fff;
 }
 .chat-empty {
   color: #94a3b8;
   text-align: center;
-  padding: 40px 0;
+  padding: 48px 0;
+  margin: auto;
 }
 .chat-input {
+  flex-shrink: 0;
   display: flex;
   gap: 8px;
-  padding-top: 8px;
+  padding: 12px 16px;
   border-top: 1px solid #e2e8f0;
+  background: #fff;
 }
 @media (max-width: 800px) {
   .stage.speaker {
