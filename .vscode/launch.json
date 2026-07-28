@@ -30,6 +30,13 @@
       "cwd": "${workspaceFolder}/client"
     },
     {
+      "name": "Client (Tauri)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "source \"$HOME/.cargo/env\" && pnpm tauri:dev",
+      "cwd": "${workspaceFolder}/client"
+    },
+    {
       "name": "HotGo API (Delve 断点调试)",
       "type": "go",
       "request": "launch",
@@ -62,6 +69,16 @@
       "stopAll": true,
       "presentation": {
         "order": 2,
+        "group": "video-conference",
+        "hidden": false
+      }
+    },
+    {
+      "name": "仅开会（Tauri 壳）",
+      "configurations": ["LiveKit", "HotGo API (Air)", "Client (Tauri)"],
+      "stopAll": true,
+      "presentation": {
+        "order": 3,
         "group": "video-conference",
         "hidden": false
       }

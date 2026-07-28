@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Tauri / Rust（src-tauri/.gitignore 已忽略 target；根级再兜一层）
+src-tauri/target
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

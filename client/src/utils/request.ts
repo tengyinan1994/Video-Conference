@@ -1,3 +1,5 @@
+import { getApiBaseUrl } from '@/utils/apiBase'
+
 export interface ApiResponse<T> {
   code: number
   message: string
@@ -17,14 +19,24 @@ export class ApiError extends Error {
 }
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const base = import.meta.env.VITE_API_BASE_URL ?? ''
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  })
+  const base = getApiBaseUrl()
+  let res: Response
+  try {
+    res = await fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    })
+  } catch {
+    throw new ApiError(
+      -1,
+      base
+        ? `无法连接业务服务（${base}）。请确认 HotGo 已启动且本机网络可达`
+        : '无法连接业务服务。请确认开发代理或 HotGo 已启动',
+    )
+  }
 
   if (!res.ok) {
     throw new ApiError(res.status, `HTTP ${res.status}`)

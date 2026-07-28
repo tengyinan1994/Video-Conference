@@ -85,6 +85,13 @@ function mediaErrorMessage(err: unknown): string {
     return '无法连接 LiveKit 信令服务。请确认 livekit-server 已启动，或刷新后重试'
   }
   if (
+    message.includes('could not establish pc connection') ||
+    message.includes('PC connection') ||
+    message.includes('ICE failed')
+  ) {
+    return '媒体连接失败（WebRTC/ICE）。局域网开会请确认 LiveKit 的 node_ip 是宿主机局域网 IP，且 7881/7882 端口可从对方机器访问'
+  }
+  if (
     typeof window !== 'undefined' &&
     !window.isSecureContext &&
     (message.includes('getUserMedia') ||
@@ -224,6 +231,8 @@ export function useLiveKitRoom() {
     if (!current) {
       participants.value = []
       screenSharing.value = false
+      micEnabled.value = false
+      cameraEnabled.value = false
       return
     }
 
@@ -259,7 +268,11 @@ export function useLiveKitRoom() {
     push(current.localParticipant, true)
     current.remoteParticipants.forEach((p) => push(p, false))
     participants.value = list
-    screenSharing.value = current.localParticipant.isScreenShareEnabled
+    const local = current.localParticipant
+    // 服务端全员静音等远程 mute 只触发 TrackMuted，需同步工具栏按钮状态
+    micEnabled.value = local.isMicrophoneEnabled
+    cameraEnabled.value = local.isCameraEnabled
+    screenSharing.value = local.isScreenShareEnabled
   }
 
   function bindRoomEvents(r: Room) {
@@ -542,8 +555,13 @@ export function useLiveKitRoom() {
     if (!local) return
     const next = !local.isCameraEnabled
     try {
+      // 摄像头与屏幕共享互斥：开摄像头前先停共享
+      if (next && local.isScreenShareEnabled) {
+        await local.setScreenShareEnabled(false)
+      }
       await local.setCameraEnabled(next)
       cameraEnabled.value = local.isCameraEnabled
+      screenSharing.value = local.isScreenShareEnabled
       rebuildParticipants()
       if (local.isCameraEnabled) void refreshDevices()
     } catch (err) {
@@ -558,6 +576,10 @@ export function useLiveKitRoom() {
     const next = !local.isScreenShareEnabled
     try {
       if (next) {
+        // 摄像头与屏幕共享互斥：开共享前先关摄像头
+        if (local.isCameraEnabled) {
+          await local.setCameraEnabled(false)
+        }
         await local.setScreenShareEnabled(
           true,
           {
@@ -581,6 +603,7 @@ export function useLiveKitRoom() {
         await local.setScreenShareEnabled(false)
       }
       screenSharing.value = local.isScreenShareEnabled
+      cameraEnabled.value = local.isCameraEnabled
       rebuildParticipants()
     } catch (err) {
       errorMessage.value = mediaErrorMessage(err)
