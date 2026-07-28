@@ -4,17 +4,16 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"hotgo/addons/conference/consts"
-	"hotgo/addons/conference/model"
 	"hotgo/addons/conference/model/input/sysin"
 	"hotgo/addons/conference/service"
 	"hotgo/internal/library/cache"
 
 	"github.com/gogf/gf/v2/errors/gerror"
-	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/livekit/protocol/auth"
 )
@@ -29,12 +28,16 @@ func init() {
 	service.RegisterSysToken(NewSysToken())
 }
 
+type participantMeta struct {
+	Role string `json:"role"`
+}
+
 func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *sysin.TokenCreateModel, err error) {
 	if err = in.Filter(ctx); err != nil {
 		return
 	}
 
-	cfg, err := s.loadConfig(ctx)
+	cfg, err := loadLiveKitConfig(ctx)
 	if err != nil {
 		return
 	}
@@ -50,8 +53,19 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 		return nil, gerror.Wrap(err, "生成参与者身份失败")
 	}
 
+	isHost, err := s.assignHost(ctx, in.Room, identity)
+	if err != nil {
+		return nil, err
+	}
+
 	ttl := time.Duration(cfg.TokenTTL) * time.Second
 	expiresAt := time.Now().Add(ttl).Unix()
+
+	role := consts.RoleMember
+	if isHost {
+		role = consts.RoleHost
+	}
+	metaBytes, _ := json.Marshal(participantMeta{Role: role})
 
 	at := auth.NewAccessToken(cfg.ApiKey, cfg.ApiSecret)
 	grant := &auth.VideoGrant{
@@ -61,10 +75,14 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 	grant.SetCanPublish(true)
 	grant.SetCanSubscribe(true)
 	grant.SetCanPublishData(true)
+	if isHost {
+		grant.RoomAdmin = true
+	}
 
 	at.SetVideoGrant(grant).
 		SetIdentity(identity).
 		SetName(in.Nickname).
+		SetMetadata(string(metaBytes)).
 		SetValidFor(ttl)
 
 	token, err := at.ToJWT()
@@ -79,29 +97,80 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 		Nickname:  in.Nickname,
 		Token:     token,
 		ExpiresAt: expiresAt,
+		IsHost:    isHost,
 	}
 	return
 }
 
-func (s *sSysToken) loadConfig(ctx context.Context) (cfg *model.LiveKitConfig, err error) {
-	cfg = &model.LiveKitConfig{
-		TokenTTL:           consts.DefaultTokenTTL,
-		AllowAnonymousToken: true,
-		RateLimitPerMinute: consts.DefaultRateLimitPerMinute,
+// assignHost：按「房间维度」抢占主持人，与昵称无关。
+// 规则：
+// 1) Redis 里尚无主持人 → 当前取 Token 者成为主持人
+// 2) 房间在 LiveKit 侧已空（全员离会）→ 清掉旧主持缓存，重新抢占（避免「空房永远无主持」）
+// 3) 房内还有人，但缓存里的主持人不在房内 → 当前取 Token 者接任
+// 4) 否则仍为普通成员
+func (s *sSysToken) assignHost(ctx context.Context, room, identity string) (isHost bool, err error) {
+	key := consts.HostCachePrefix + room
+	hostTTL := time.Duration(consts.HostCacheTTL) * time.Second
+
+	client, _, err := newRoomServiceClient(ctx)
+	if err != nil {
+		return false, err
 	}
-	if err = g.Cfg().MustGet(ctx, "livekit").Scan(cfg); err != nil {
-		return nil, gerror.Wrap(err, "读取 LiveKit 配置失败")
+	participants, err := listRoomParticipants(ctx, client, room)
+	if err != nil {
+		return false, err
 	}
-	if cfg.Url == "" || cfg.ApiKey == "" || cfg.ApiSecret == "" {
-		return nil, gerror.New("LiveKit 配置不完整，请检查 livekit.url / apiKey / apiSecret")
+
+	live := make(map[string]struct{}, len(participants))
+	for _, p := range participants {
+		if p != nil && p.Identity != "" {
+			live[p.Identity] = struct{}{}
+		}
 	}
-	if cfg.TokenTTL <= 0 {
-		cfg.TokenTTL = consts.DefaultTokenTTL
+
+	// 空房：旧主持缓存作废，重新抢（并发时只有一人能 SetIfNotExist 成功）
+	if len(live) == 0 {
+		if _, remErr := cache.Instance().Remove(ctx, key); remErr != nil {
+			return false, gerror.Wrap(remErr, "清除空房主持人缓存失败")
+		}
+		ok, setErr := cache.Instance().SetIfNotExist(ctx, key, identity, hostTTL)
+		if setErr != nil {
+			return false, gerror.Wrap(setErr, "写入主持人缓存失败")
+		}
+		return ok, nil
 	}
-	if cfg.RateLimitPerMinute <= 0 {
-		cfg.RateLimitPerMinute = consts.DefaultRateLimitPerMinute
+
+	ok, err := cache.Instance().SetIfNotExist(ctx, key, identity, hostTTL)
+	if err != nil {
+		return false, gerror.Wrap(err, "写入主持人缓存失败")
 	}
-	return
+	if ok {
+		return true, nil
+	}
+
+	val, err := cache.Instance().Get(ctx, key)
+	if err != nil {
+		return false, gerror.Wrap(err, "读取主持人缓存失败")
+	}
+	currentHost := ""
+	if val != nil && !val.IsNil() {
+		currentHost = val.String()
+	}
+	// 房内已有人，但缓存主持人已不在 → 接任
+	if currentHost == "" {
+		if err = cache.Instance().Set(ctx, key, identity, hostTTL); err != nil {
+			return false, gerror.Wrap(err, "写入主持人缓存失败")
+		}
+		return true, nil
+	}
+	if _, inRoom := live[currentHost]; !inRoom {
+		if err = cache.Instance().Set(ctx, key, identity, hostTTL); err != nil {
+			return false, gerror.Wrap(err, "写入主持人缓存失败")
+		}
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (s *sSysToken) checkRateLimit(ctx context.Context, limit int) error {

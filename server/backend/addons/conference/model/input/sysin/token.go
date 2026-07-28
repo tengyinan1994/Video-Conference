@@ -53,4 +53,5 @@ type TokenCreateModel struct {
 	Nickname  string `json:"nickname" dc:"显示昵称"`
 	Token     string `json:"token" dc:"进房 JWT"`
 	ExpiresAt int64  `json:"expiresAt" dc:"过期时间戳（秒）"`
+	IsHost    bool   `json:"isHost" dc:"是否为本房间主持人（空房首个取 Token 者；主持离会后下一位取 Token 者可接任）"`
 }

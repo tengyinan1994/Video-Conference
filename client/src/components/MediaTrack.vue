@@ -6,6 +6,8 @@ const props = defineProps<{
   track?: AttachableTrack
   muted?: boolean
   mirror?: boolean
+  /** cover=人像；contain=投屏，避免桌面被裁切 */
+  fit?: 'cover' | 'contain'
 }>()
 
 const el = ref<HTMLMediaElement | null>(null)
@@ -50,7 +52,7 @@ onBeforeUnmount(() => {
     autoplay
     playsinline
     :muted="muted"
-    :class="{ mirror }"
+    :class="{ mirror, contain: fit === 'contain' }"
   />
   <audio
     v-else-if="track && track.kind === 'audio'"
@@ -70,5 +72,9 @@ video {
 }
 .mirror {
   transform: scaleX(-1);
+}
+.contain {
+  object-fit: contain;
+  background: #000;
 }
 </style>

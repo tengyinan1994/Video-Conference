@@ -11,4 +11,12 @@ const (
 	MaxNicknameLen = 32
 	// RateLimitCachePrefix 限流缓存 key 前缀
 	RateLimitCachePrefix = "conference:token:rate:"
+	// HostCachePrefix 房间主持人缓存 key 前缀
+	HostCachePrefix = "conference:room:host:"
+	// HostCacheTTL 主持人标记缓存时长
+	HostCacheTTL = 2 * 60 * 60
+	// RoleHost 参与者 metadata 角色：主持人
+	RoleHost = "host"
+	// RoleMember 参与者 metadata 角色：普通成员
+	RoleMember = "member"
 )

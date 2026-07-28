@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Button, Card, Form, Input, message } from 'ant-design-vue'
+import { Button, Card, Form, Input, Switch, message } from 'ant-design-vue'
 import { createToken } from '@/api/conference'
 import { ApiError } from '@/utils/request'
 
@@ -10,6 +10,8 @@ const loading = ref(false)
 const form = reactive({
   room: 'demo',
   nickname: '',
+  enableMic: false,
+  enableCamera: false,
 })
 
 async function onJoin() {
@@ -29,6 +31,9 @@ async function onJoin() {
         identity: data.identity,
         nickname: data.nickname,
         expiresAt: data.expiresAt,
+        isHost: !!data.isHost,
+        enableMic: form.enableMic,
+        enableCamera: form.enableCamera,
       }),
     )
     await router.push({ name: 'room', params: { room: data.room } })
@@ -59,9 +64,25 @@ async function onJoin() {
         >
           <Input v-model:value="form.nickname" placeholder="显示名称" allow-clear />
         </Form.Item>
+        <Form.Item label="进房后设备">
+          <div class="media-opts">
+            <label class="media-opt">
+              <span>麦克风</span>
+              <Switch v-model:checked="form.enableMic" checked-children="开" un-checked-children="关" />
+            </label>
+            <label class="media-opt">
+              <span>摄像头</span>
+              <Switch
+                v-model:checked="form.enableCamera"
+                checked-children="开"
+                un-checked-children="关"
+              />
+            </label>
+          </div>
+        </Form.Item>
         <Button type="primary" html-type="submit" block :loading="loading">进入会议</Button>
       </Form>
-      <p class="hint">无需手签 lk Token。服务端会生成唯一 identity，同昵称也不会互踢。</p>
+      <p class="hint">默认静音且关闭摄像头；可在进房前自行打开。进房后仍可随时切换。</p>
     </Card>
   </div>
 </template>
@@ -84,5 +105,17 @@ async function onJoin() {
   color: #64748b;
   font-size: 13px;
   line-height: 1.5;
+}
+.media-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.media-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(0, 0, 0, 0.88);
 }
 </style>

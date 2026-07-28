@@ -18,6 +18,7 @@ func Api(ctx context.Context, group *ghttp.RouterGroup) {
 	group.Group(prefix, func(group *ghttp.RouterGroup) {
 		group.Bind(
 			api.Token,
+			api.Room,
 		)
 		group.Middleware(service.Middleware().ApiAuth)
 	})
