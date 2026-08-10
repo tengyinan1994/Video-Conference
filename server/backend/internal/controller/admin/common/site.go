@@ -93,7 +93,7 @@ func (c *cSite) LoginConfig(ctx context.Context, _ *common.SiteLoginConfigReq) (
 	res.LoginConfig = login
 	res.I18nSwitch = g.Cfg().MustGet(ctx, "system.i18n.switch", true).Bool()
 	res.DefaultLanguage = g.Cfg().MustGet(ctx, "system.i18n.defaultLanguage", consts.SysDefaultLanguage).String()
-	res.ProjectName = gi18n.T(ctx, "HotGo管理系统")
+	res.ProjectName = gi18n.T(ctx, "视频汇聚管理系统")
 	return
 }
 

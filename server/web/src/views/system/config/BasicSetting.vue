@@ -71,7 +71,7 @@
   const dialog = useDialog();
 
   const formValue = ref({
-    basicName: 'HotGo',
+    basicName: '视频汇聚管理系统',
     basicLogo: '',
     basicDomain: 'https://hotgo.facms.cn',
     basicWsAddr: 'wss://hotgo.facms.cn/socket',

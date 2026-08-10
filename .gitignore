@@ -25,3 +25,5 @@ server/web/dist/
 server/backend/tmp/
 server/backend/main
 server/backend/main.exe
+
+livekit-master
