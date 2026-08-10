@@ -4,7 +4,7 @@
     {
       "label": "LiveKit",
       "type": "shell",
-      "command": "zsh \"${workspaceFolder}/scripts/start-livekit.sh\"",
+      "command": "docker compose -f \"${workspaceFolder}/deploy/docker-compose.yml\" --env-file \"${workspaceFolder}/deploy/.env\" up livekit",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -15,7 +15,7 @@
         "background": {
           "activeOnStart": true,
           "beginsPattern": ".",
-          "endsPattern": "starting LiveKit server|LiveKit 容器已"
+          "endsPattern": "starting LiveKit server|Server started|livekit"
         }
       },
       "presentation": {

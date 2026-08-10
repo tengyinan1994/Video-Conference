@@ -1,0 +1,9 @@
+# 会议客户端运行时（宿主机预构建 dist）+ 自签 HTTPS
+# 证书由宿主机生成后放入 deploy/images/certs/（见 build-common 或手动 openssl）
+FROM nginx:alpine
+ARG TARGETARCH
+COPY deploy/images/certs/server.crt /etc/nginx/certs/server.crt
+COPY deploy/images/certs/server.key /etc/nginx/certs/server.key
+COPY deploy/images/nginx-client.conf /etc/nginx/conf.d/default.conf
+COPY deploy/images/artifacts/${TARGETARCH}/client/ /usr/share/nginx/html/
+EXPOSE 80 443

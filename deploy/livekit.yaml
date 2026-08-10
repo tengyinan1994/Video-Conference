@@ -1,0 +1,14 @@
+# （可选参考）LiveKit 静态配置样例。
+# 实际运行时由 docker-compose 根据 deploy/.env 注入 LIVEKIT_CONFIG，
+# 其中 rtc.tcp_port / udp_port 取自 LIVEKIT_RTC_TCP_PORT / LIVEKIT_RTC_UDP_PORT，
+# 不再依赖本文件。保留仅供查阅。
+
+port: 7880
+rtc:
+  tcp_port: 17881
+  udp_port: 17882
+  use_external_ip: false
+keys:
+  devkey: secretsecretsecretsecretsecret12
+logging:
+  level: info

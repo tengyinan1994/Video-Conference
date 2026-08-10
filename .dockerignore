@@ -1,0 +1,17 @@
+# 减小 docker build 上下文
+.git/
+.cursor/
+.vscode/
+**/node_modules/
+**/dist/
+**/tmp/
+**/temp/
+**/.DS_Store
+client/src-tauri/target/
+server/backend/logs/
+server/backend/storage/data/sqlite/
+server/web/dist/
+deploy/images/amd64/*.tar
+deploy/images/arm64/*.tar
+livekit-master/
+*.log

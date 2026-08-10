@@ -11,17 +11,38 @@
 | `server/backend/addons/conference` | 会议 Token 插件 |
 | `server/web/` | 管理后台（Naive UI） |
 | `client/` | 会议客户端（后续套 Tauri） |
-| `视频会议/` | 设计与学习路线 |
+| `deploy/` | Docker 部署（compose + 镜像打包） |
 
-## 本机启动
+## 本机开发启动
 
-1. MySQL / Redis：已用 `/Users/chaoming/Middleware/docker-compose.yml`
+1. MySQL / Redis：已用 `/Users/chaoming/Middleware/docker-compose.yml`，或本仓库 `deploy/docker-compose.yml` 只起中间件
 2. 独立库：`video_conference`（不要用其他项目的 `hotgo` 库）
-3. LiveKit：`livekit-server --dev`（或已有 Docker 容器）
+3. LiveKit：`docker compose -f deploy/docker-compose.yml --env-file deploy/.env up livekit`
 4. HotGo：`cd server/backend && air`
 5. 客户端：`cd client && pnpm dev` → <http://127.0.0.1:5173>
 
 Token API：`POST /api/conference/token/create`，body：`{"room":"demo","nickname":"张三"}`
+
+## Docker 部署
+
+```bash
+cp deploy/.env.example deploy/.env
+cp deploy/config/config.example.yaml deploy/config/config.yaml
+# 编辑 .env 的 LIVEKIT_NODE_IP、ARCH；编辑 config.yaml 的 livekit.url
+
+# 打包镜像（按目标架构二选一）
+./deploy/images/build-amd64.sh
+# ./deploy/images/build-arm64.sh
+
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+```
+
+- 会议客户端：<https://宿主机:17885>（自签证书，需浏览器点「继续访问」；摄像头/麦克风依赖 HTTPS）
+- 管理后台：<http://宿主机:17883/admin>
+- LiveKit 信令：`ws://宿主机:17880`（HTTPS 会议页会改走同源 `wss://宿主机:17885`，由 nginx 反代 `/rtc`）
+- 宿主机对外端口：`17880–17883`、`17885`（LiveKit / HotGo / 客户端；mysql·redis 不映射）
+
+离线机：将 `deploy/images/amd64/*.tar`（或 `arm64`）拷过去后 `docker load -i ...`，再 `compose up`。
 
 ## 数据库 MCP
 

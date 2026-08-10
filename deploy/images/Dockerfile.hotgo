@@ -1,0 +1,45 @@
+# HotGo：管理后台静态资源 + Go API，多架构构建（amd64 / arm64）
+# 构建上下文：仓库根目录
+#   docker buildx build --platform linux/amd64 -f deploy/images/Dockerfile.hotgo -t video-conference/hotgo:amd64 .
+
+ARG GO_VERSION=1.26
+ARG NODE_VERSION=22
+
+# ---------- 管理后台 ----------
+FROM node:${NODE_VERSION}-alpine AS web-builder
+WORKDIR /web
+RUN corepack enable
+COPY server/web/package.json server/web/pnpm-lock.yaml ./
+# pnpm 10+ 默认忽略依赖 build scripts（esbuild 等），镜像构建需显式放开
+RUN echo "dangerouslyAllowAllBuilds=true" > .npmrc \
+    && pnpm install --frozen-lockfile
+COPY server/web/ ./
+RUN pnpm run build
+
+# ---------- Go 后端 ----------
+FROM golang:${GO_VERSION}-alpine AS go-builder
+ARG TARGETARCH
+WORKDIR /src
+RUN apk add --no-cache git ca-certificates
+COPY server/backend/go.mod server/backend/go.sum ./
+RUN go mod download
+COPY server/backend/ ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -ldflags="-s -w" -o /out/hotgo .
+
+# ---------- 运行时 ----------
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata \
+    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone
+WORKDIR /app
+COPY --from=go-builder /out/hotgo /app/hotgo
+COPY server/backend/hack /app/hack
+COPY server/backend/resource /app/resource
+COPY --from=web-builder /web/dist/ /app/resource/public/admin/
+COPY deploy/images/hotgo-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/hotgo /app/entrypoint.sh \
+    && mkdir -p /app/logs /app/storage
+# 配置由 compose 挂载到 /app/manifest/config
+EXPOSE 8000 8099
+ENTRYPOINT ["/app/entrypoint.sh"]

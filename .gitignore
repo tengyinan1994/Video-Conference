@@ -12,6 +12,14 @@
 .env
 .env.*
 !.env.example
+!deploy/.env.example
+
+# 部署运行时配置与镜像 tar（模板保留 example）
+deploy/config/config.yaml
+deploy/images/amd64/*.tar
+deploy/images/amd64/*.tar.gz
+deploy/images/arm64/*.tar
+deploy/images/arm64/*.tar.gz
 
 # 客户端构建产物
 client/node_modules/

@@ -1,0 +1,9 @@
+# 打包产物（勿提交）
+amd64/*.tar
+amd64/*.tar.gz
+arm64/*.tar
+arm64/*.tar.gz
+artifacts/
+certs/*.crt
+certs/*.key
+!certs/.gitkeep

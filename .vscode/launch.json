@@ -5,7 +5,7 @@
       "name": "LiveKit",
       "type": "node-terminal",
       "request": "launch",
-      "command": "zsh \"${workspaceFolder}/scripts/start-livekit.sh\"",
+      "command": "docker compose -f \"${workspaceFolder}/deploy/docker-compose.yml\" --env-file \"${workspaceFolder}/deploy/.env\" up livekit",
       "cwd": "${workspaceFolder}"
     },
     {

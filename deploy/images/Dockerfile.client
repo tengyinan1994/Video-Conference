@@ -1,0 +1,24 @@
+# 会议 Web 客户端（Vue 静态资源 + nginx）
+# 构建上下文：仓库根目录
+#   docker buildx build --platform linux/amd64 -f deploy/images/Dockerfile.client -t video-conference/client:amd64 .
+
+ARG NODE_VERSION=22
+
+FROM node:${NODE_VERSION}-alpine AS builder
+# 空字符串：走 nginx 同源代理 /api、/rtc（见 nginx-client.conf）
+ARG VITE_API_BASE_URL=
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+WORKDIR /app
+RUN corepack enable
+COPY client/package.json client/pnpm-lock.yaml ./
+RUN echo "dangerouslyAllowAllBuilds=true" > .npmrc \
+    && pnpm install --frozen-lockfile
+COPY client/ ./
+# 覆盖生产 env，避免把本机内网 IP 打进镜像
+RUN printf 'VITE_API_BASE_URL=%s\n' "${VITE_API_BASE_URL}" > .env.production \
+    && pnpm run build
+
+FROM nginx:1.27-alpine
+COPY deploy/images/nginx-client.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+EXPOSE 80

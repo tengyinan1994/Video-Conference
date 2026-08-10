@@ -1,0 +1,20 @@
+# HotGo 运行时（依赖宿主机预编译的 linux 二进制与管理后台静态资源）
+# 产物目录：deploy/images/artifacts/<arch>/
+# 基座用 nginx:alpine（Alpine），避免再拉 golang/node 构建镜像。
+
+FROM nginx:alpine
+RUN apk add --no-cache ca-certificates tzdata \
+    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone \
+    && rm -rf /etc/nginx /usr/share/nginx /var/cache/nginx
+WORKDIR /app
+ARG TARGETARCH
+COPY deploy/images/artifacts/${TARGETARCH}/hotgo /app/hotgo
+COPY server/backend/hack /app/hack
+COPY server/backend/resource /app/resource
+COPY deploy/images/artifacts/${TARGETARCH}/admin/ /app/resource/public/admin/
+COPY deploy/images/hotgo-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/hotgo /app/entrypoint.sh \
+    && mkdir -p /app/logs /app/storage
+EXPOSE 8000 8099
+ENTRYPOINT ["/app/entrypoint.sh"]

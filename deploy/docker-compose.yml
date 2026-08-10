@@ -1,0 +1,116 @@
+# Video Conference 部署编排
+# 用法：
+#   1. cp deploy/config/config.example.yaml deploy/config/config.yaml
+#      按需改 livekit.url（浏览器可达的 ws://IP:17880）与数据库密码
+#   2. cp deploy/.env.example deploy/.env
+#      填写 LIVEKIT_NODE_IP（局域网 IP）与 ARCH=amd64|arm64
+#   3. 先打包镜像：./deploy/images/build-amd64.sh 或 build-arm64.sh
+#   4. docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+#
+# 仅对外暴露浏览器/局域网需要的口（见 .env）：LiveKit 信令+RTC、HotGo HTTP、会议客户端。
+# mysql / redis / HotGo TCP 只走 compose 内网，不映射宿主机。
+
+name: video-conference
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: vc-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-video_conference}
+      MYSQL_USER: ${MYSQL_USER:-video_conference}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-hg123456.}
+    volumes:
+      - vc_mysql_data:/var/lib/mysql
+      - ../server/backend/storage/data/hotgo.sql:/docker-entrypoint-initdb.d/01-hotgo.sql:ro
+      - ./init/02-conference-addon.sql:/docker-entrypoint-initdb.d/02-conference-addon.sql:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: vc-redis
+    restart: unless-stopped
+    volumes:
+      - vc_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  livekit:
+    # 离线部署 load tar 后设 LIVEKIT_IMAGE=video-conference/livekit:arm64（或 amd64）
+    image: ${LIVEKIT_IMAGE:-video-conference/livekit:arm64}
+    container_name: vc-livekit
+    restart: unless-stopped
+    # RTC 监听口 = 宿主机映射口 = ICE 宣告口，全部由 .env 的 LIVEKIT_RTC_*_PORT 控制
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: ${LIVEKIT_RTC_TCP_PORT:-17881}
+          udp_port: ${LIVEKIT_RTC_UDP_PORT:-17882}
+          use_external_ip: false
+        keys:
+          ${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secretsecretsecretsecretsecret12}
+        logging:
+          level: info
+    command:
+      - --bind
+      - 0.0.0.0
+      - --node-ip
+      - ${LIVEKIT_NODE_IP:-127.0.0.1}
+    ports:
+      # 信令：容器内固定 7880，宿主机口用 LIVEKIT_SIGNAL_PORT（写入 HotGo livekit.url）
+      - "${LIVEKIT_SIGNAL_PORT:-17880}:7880"
+      # RTC：1:1 映射，与 LIVEKIT_CONFIG 中 tcp_port/udp_port 相同
+      - "${LIVEKIT_RTC_TCP_PORT:-17881}:${LIVEKIT_RTC_TCP_PORT:-17881}"
+      - "${LIVEKIT_RTC_UDP_PORT:-17882}:${LIVEKIT_RTC_UDP_PORT:-17882}/udp"
+
+  hotgo:
+    image: video-conference/hotgo:${ARCH:-amd64}
+    container_name: vc-hotgo
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    volumes:
+      - ./config:/app/manifest/config:ro
+      - vc_hotgo_logs:/app/logs
+      - vc_hotgo_storage:/app/storage
+    ports:
+      # 管理后台 / 直连 API（会议页经 client nginx 反代时，浏览器也可只开 CLIENT_PORT）
+      - "${HOTGO_PORT:-17883}:8000"
+
+  client:
+    image: video-conference/client:${ARCH:-amd64}
+    container_name: vc-client
+    restart: unless-stopped
+    depends_on:
+      - hotgo
+      - livekit
+    ports:
+      # 对外为 HTTPS（443）；宿主机 CLIENT_PORT 默认 17885
+      - "${CLIENT_PORT:-17885}:443"
+      # 80 仅用于跳转到 https
+      - "${CLIENT_HTTP_PORT:-17888}:80"
+
+volumes:
+  vc_mysql_data:
+  vc_redis_data:
+  vc_hotgo_logs:
+  vc_hotgo_storage:

@@ -130,14 +130,18 @@ function parseRoleHost(metadata: string | undefined): boolean {
   }
 }
 
-/** 开发环境经 Vite 同源代理 /rtc，避免内置预览拦直连 :7880 */
+/** LiveKit 信令地址：https 页必须同源 wss（nginx/Vite 反代 /rtc），避免混合内容被拦 */
 export function resolveLiveKitUrl(serverUrl: string): string {
-  if (!import.meta.env.DEV || typeof location === 'undefined') {
+  if (typeof location === 'undefined') {
     return serverUrl
   }
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${location.host}`
+  if (import.meta.env.DEV || location.protocol === 'https:') {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${location.host}`
+  }
+  return serverUrl
 }
+
 
 export function useLiveKitRoom() {
   const room = shallowRef<Room | null>(null)
