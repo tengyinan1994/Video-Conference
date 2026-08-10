@@ -7,13 +7,14 @@ package common
 
 import (
 	"context"
-	"github.com/gogf/gf/v2/i18n/gi18n"
 	"hotgo/api/admin/common"
 	"hotgo/internal/consts"
 	"hotgo/internal/library/captcha"
 	"hotgo/internal/library/token"
 	"hotgo/internal/service"
 	"hotgo/utility/validate"
+
+	"github.com/gogf/gf/v2/i18n/gi18n"
 
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
@@ -93,7 +94,7 @@ func (c *cSite) LoginConfig(ctx context.Context, _ *common.SiteLoginConfigReq) (
 	res.LoginConfig = login
 	res.I18nSwitch = g.Cfg().MustGet(ctx, "system.i18n.switch", true).Bool()
 	res.DefaultLanguage = g.Cfg().MustGet(ctx, "system.i18n.defaultLanguage", consts.SysDefaultLanguage).String()
-	res.ProjectName = gi18n.T(ctx, "视频汇聚管理系统")
+	res.ProjectName = gi18n.T(ctx, "视频会议系统")
 	return
 }
 
