@@ -11,19 +11,42 @@ const props = defineProps<{
 }>()
 
 const el = ref<HTMLMediaElement | null>(null)
+let endedHandler: (() => void) | null = null
+let boundMediaTrack: MediaStreamTrack | null = null
+
+function clearEndedListener() {
+  if (boundMediaTrack && endedHandler) {
+    boundMediaTrack.removeEventListener('ended', endedHandler)
+  }
+  boundMediaTrack = null
+  endedHandler = null
+}
 
 async function attach() {
   // v-if 创建 video/audio 后 ref 才就绪，必须等 DOM 更新
   await nextTick()
   const media = el.value
   const track = props.track
+  clearEndedListener()
   if (!media) return
   if (!track) {
     media.srcObject = null
     return
   }
+  // 已结束的轨不要再挂载，避免黑屏残留
+  if (track.mediaStreamTrack && track.mediaStreamTrack.readyState !== 'live') {
+    media.srcObject = null
+    return
+  }
   track.attach(media)
   media.muted = !!props.muted
+  if (track.mediaStreamTrack) {
+    boundMediaTrack = track.mediaStreamTrack
+    endedHandler = () => {
+      if (el.value) el.value.srcObject = null
+    }
+    boundMediaTrack.addEventListener('ended', endedHandler)
+  }
   // 部分浏览器对动态挂上的流不会自动 play
   try {
     await media.play()
@@ -41,6 +64,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  clearEndedListener()
   props.track?.detach(el.value ?? undefined)
 })
 </script>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Alert,
@@ -16,6 +16,10 @@ import {
   AudioMutedOutlined,
   AudioOutlined,
   DesktopOutlined,
+  ExpandOutlined,
+  AppstoreOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
   LogoutOutlined,
   MessageOutlined,
   SoundOutlined,
@@ -59,6 +63,8 @@ const {
   chatMessages,
   layoutMode,
   speakerParticipant,
+  showSpeakerSide,
+  activeVideoCount,
   audioInputs,
   videoInputs,
   audioOutputs,
@@ -120,7 +126,60 @@ async function syncHostRole() {
 
 const avatarParticipants = computed(() => participants.value)
 
-const sideParticipants = computed(() => participants.value)
+/** 侧栏只列出有画面的成员，便于切换主视图 */
+const sideParticipants = computed(() =>
+  participants.value.filter((p) => p.isCameraEnabled || p.isScreenSharing),
+)
+
+/** 多人有画面时，可手动收起侧栏为单主视图 */
+const preferSoloMain = ref(false)
+const canToggleSoloLayout = computed(
+  () => layoutMode.value === 'speaker' && activeVideoCount.value > 1,
+)
+const sideVisible = computed(() => showSpeakerSide.value && !preferSoloMain.value)
+
+watch(activeVideoCount, (n, prev) => {
+  if (n <= 1) {
+    preferSoloMain.value = false
+    return
+  }
+  // 有新人出画面（1→多人）：自动展开侧栏宫格，便于切换成员
+  if (typeof prev === 'number' && n > prev) {
+    preferSoloMain.value = false
+  }
+})
+
+function toggleSoloLayout() {
+  if (!canToggleSoloLayout.value) return
+  preferSoloMain.value = !preferSoloMain.value
+}
+
+const mainStageEl = ref<HTMLElement | null>(null)
+const mainFullscreen = ref(false)
+
+function syncMainFullscreen() {
+  const el = mainStageEl.value
+  mainFullscreen.value = !!el && document.fullscreenElement === el
+}
+
+async function toggleMainFullscreen() {
+  const el = mainStageEl.value
+  if (!el) return
+  try {
+    if (document.fullscreenElement === el) {
+      await document.exitFullscreen()
+    } else {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+      }
+      await el.requestFullscreen()
+    }
+  } catch {
+    message.warning('当前环境无法进入全屏')
+  } finally {
+    syncMainFullscreen()
+  }
+}
 
 const mainStageTrack = computed(() => {
   const p = speakerParticipant.value
@@ -270,7 +329,15 @@ watch(
 )
 
 onMounted(() => {
+  document.addEventListener('fullscreenchange', syncMainFullscreen)
   void enter()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', syncMainFullscreen)
+  if (document.fullscreenElement === mainStageEl.value) {
+    void document.exitFullscreen().catch(() => undefined)
+  }
 })
 </script>
 
@@ -307,7 +374,7 @@ onMounted(() => {
       class="banner"
     />
 
-    <div class="stage" :class="layoutMode">
+    <div class="stage" :class="[layoutMode, { solo: layoutMode === 'speaker' && !sideVisible }]">
       <!-- 无人出画面：头像 + 名称墙 -->
       <template v-if="layoutMode === 'avatar'">
         <div class="avatar-wall">
@@ -335,13 +402,17 @@ onMounted(() => {
         </div>
       </template>
 
-      <!-- 有人开摄像头或投屏：演讲者布局，点击右侧可切换主视图 -->
+      <!-- 有人开摄像头或投屏：单主视图；多人有画面时右侧可切换 -->
       <template v-else>
         <div class="speaker-main">
           <div
             v-if="speakerParticipant"
+            ref="mainStageEl"
             class="tile main"
-            :class="{ speaking: speakerParticipant.isSpeaking && !mainIsScreen }"
+            :class="{
+              speaking: speakerParticipant.isSpeaking && !mainIsScreen,
+              fullscreen: mainFullscreen,
+            }"
           >
             <MediaTrack
               v-if="mainStageTrack"
@@ -357,6 +428,33 @@ onMounted(() => {
               v-if="speakerParticipant.audioTrack && !speakerParticipant.isLocal"
               :track="speakerParticipant.audioTrack"
             />
+            <div class="main-actions">
+              <Tooltip
+                v-if="canToggleSoloLayout"
+                :title="preferSoloMain ? '恢复成员侧栏' : '切换为单主视图'"
+              >
+                <button
+                  type="button"
+                  class="layout-toggle"
+                  :aria-label="preferSoloMain ? '恢复成员侧栏' : '切换为单主视图'"
+                  @click.stop="toggleSoloLayout"
+                >
+                  <ExpandOutlined v-if="!preferSoloMain" />
+                  <AppstoreOutlined v-else />
+                </button>
+              </Tooltip>
+              <Tooltip :title="mainFullscreen ? '退出全屏' : '主视图全屏'">
+                <button
+                  type="button"
+                  class="layout-toggle"
+                  :aria-label="mainFullscreen ? '退出全屏' : '主视图全屏'"
+                  @click.stop="toggleMainFullscreen"
+                >
+                  <FullscreenExitOutlined v-if="mainFullscreen" />
+                  <FullscreenOutlined v-else />
+                </button>
+              </Tooltip>
+            </div>
             <div class="label">
               <span>
                 {{ speakerParticipant.name }}
@@ -368,7 +466,7 @@ onMounted(() => {
           </div>
           <div v-else class="empty">暂无画面</div>
         </div>
-        <div class="speaker-side">
+        <div v-if="sideVisible" class="speaker-side">
           <p v-if="sideParticipants.length" class="side-hint">点击成员切换主视图</p>
           <div
             v-for="p in sideParticipants"
@@ -638,6 +736,9 @@ onMounted(() => {
   grid-template-columns: 1fr 180px;
   gap: 12px;
 }
+.stage.speaker.solo {
+  grid-template-columns: 1fr;
+}
 .avatar-wall {
   flex: 1;
   min-height: 0;
@@ -740,6 +841,37 @@ onMounted(() => {
 .tile.main {
   height: 100%;
   min-height: 0;
+}
+.tile.main.fullscreen {
+  border-radius: 0;
+  border: none;
+  background: #000;
+}
+.main-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: flex;
+  gap: 8px;
+}
+.layout-toggle {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.layout-toggle:hover {
+  background: rgba(15, 23, 42, 0.78);
+  transform: scale(1.04);
 }
 .tile.side {
   aspect-ratio: 16 / 10;
