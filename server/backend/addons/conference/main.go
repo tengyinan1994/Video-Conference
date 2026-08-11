@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"hotgo/addons/conference/global"
+	_ "hotgo/addons/conference/crons"
 	_ "hotgo/addons/conference/logic"
 	"hotgo/addons/conference/router"
 	"hotgo/internal/library/addons"

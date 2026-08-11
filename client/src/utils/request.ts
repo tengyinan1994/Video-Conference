@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from '@/utils/apiBase'
+import { clearAuth, getToken } from '@/stores/auth'
 
 export interface ApiResponse<T> {
   code: number
@@ -20,14 +21,20 @@ export class ApiError extends Error {
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const base = getApiBaseUrl()
+  const token = getToken()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> | undefined),
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
   let res: Response
   try {
     res = await fetch(`${base}${path}`, {
       ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(init?.headers ?? {}),
-      },
+      headers,
     })
   } catch {
     throw new ApiError(
@@ -44,6 +51,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const body = (await res.json()) as ApiResponse<T>
   if (body.code !== 0) {
+    // 未授权时清登录态，便于路由回登录页
+    if (body.code === 401 || body.code === 61) {
+      clearAuth()
+    }
     throw new ApiError(body.code, body.message || '请求失败')
   }
   return body.data

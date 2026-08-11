@@ -97,5 +97,5 @@ func (in *RoomClaimHostInp) Filter(ctx context.Context) (err error) {
 
 // RoomClaimHostModel 认领主持结果
 type RoomClaimHostModel struct {
-	IsHost bool `json:"isHost" dc:"当前是否已成为（或本来就是）主持人"`
+	IsHost bool `json:"isHost" dc:"是否为预定主持人"`
 }

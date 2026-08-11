@@ -9,9 +9,13 @@ import (
 	"time"
 
 	"hotgo/addons/conference/consts"
+	"hotgo/addons/conference/model/entity"
 	"hotgo/addons/conference/model/input/sysin"
 	"hotgo/addons/conference/service"
 	"hotgo/internal/library/cache"
+	"hotgo/internal/library/contexts"
+	"hotgo/internal/library/token"
+	"hotgo/internal/model"
 
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/net/ghttp"
@@ -41,21 +45,50 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 	if err != nil {
 		return
 	}
-	if !cfg.AllowAnonymousToken {
-		return nil, gerror.New("当前未开放匿名进房，请先登录")
-	}
 	if err = s.checkRateLimit(ctx, cfg.RateLimitPerMinute); err != nil {
 		return
 	}
 
-	identity, err := generateIdentity()
-	if err != nil {
-		return nil, gerror.Wrap(err, "生成参与者身份失败")
+	user := optionalLoginUser(ctx)
+
+	var meeting *entity.Meeting
+	if in.ShareCode != "" {
+		meeting, err = service.SysMeeting().GetByShareCode(ctx, in.ShareCode)
+		if err != nil {
+			return
+		}
+		if meeting == nil {
+			return nil, gerror.New("会议不存在或链接无效")
+		}
+	} else {
+		if user == nil {
+			return nil, gerror.New("请先登录后再进入会议")
+		}
+		meeting, err = service.SysMeeting().GetByRoomName(ctx, in.Room)
+		if err != nil {
+			return
+		}
+		if meeting == nil {
+			return nil, gerror.New("会议室不存在，请从大厅进入或使用分享链接")
+		}
 	}
 
-	isHost, err := s.assignHost(ctx, in.Room, identity)
+	if err = service.SysMeeting().AssertJoinable(ctx, meeting); err != nil {
+		return
+	}
+
+	if user == nil {
+		if !cfg.AllowAnonymousToken {
+			return nil, gerror.New("当前未开放游客进房，请先登录")
+		}
+		if in.ShareCode == "" {
+			return nil, gerror.New("请先登录后再进入会议")
+		}
+	}
+
+	identity, isHost, err := s.resolveIdentityAndHost(ctx, meeting, user)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	ttl := time.Duration(cfg.TokenTTL) * time.Second
@@ -70,7 +103,7 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 	at := auth.NewAccessToken(cfg.ApiKey, cfg.ApiSecret)
 	grant := &auth.VideoGrant{
 		RoomJoin: true,
-		Room:     in.Room,
+		Room:     meeting.RoomName,
 	}
 	grant.SetCanPublish(true)
 	grant.SetCanSubscribe(true)
@@ -85,92 +118,57 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 		SetMetadata(string(metaBytes)).
 		SetValidFor(ttl)
 
-	token, err := at.ToJWT()
+	jwtToken, err := at.ToJWT()
 	if err != nil {
 		return nil, gerror.Wrap(err, "签发会议 Token 失败")
 	}
 
 	res = &sysin.TokenCreateModel{
 		ServerUrl: cfg.Url,
-		Room:      in.Room,
+		Room:      meeting.RoomName,
+		Title:     meeting.Title,
 		Identity:  identity,
 		Nickname:  in.Nickname,
-		Token:     token,
+		Token:     jwtToken,
 		ExpiresAt: expiresAt,
 		IsHost:    isHost,
 	}
 	return
 }
 
-// assignHost：按「房间维度」抢占主持人，与昵称无关。
-// 规则：
-// 1) Redis 里尚无主持人 → 当前取 Token 者成为主持人
-// 2) 房间在 LiveKit 侧已空（全员离会）→ 清掉旧主持缓存，重新抢占（避免「空房永远无主持」）
-// 3) 房内还有人，但缓存里的主持人不在房内 → 当前取 Token 者接任
-// 4) 否则仍为普通成员
-func (s *sSysToken) assignHost(ctx context.Context, room, identity string) (isHost bool, err error) {
-	key := consts.HostCachePrefix + room
-	hostTTL := time.Duration(consts.HostCacheTTL) * time.Second
+func optionalLoginUser(ctx context.Context) *model.Identity {
+	if u := contexts.GetUser(ctx); u != nil && u.Id > 0 {
+		return u
+	}
+	r := ghttp.RequestFromCtx(ctx)
+	if r == nil {
+		return nil
+	}
+	user, err := token.ParseLoginUser(r)
+	if err != nil || user == nil || user.Id <= 0 {
+		return nil
+	}
+	contexts.SetUser(ctx, user)
+	return user
+}
 
-	client, _, err := newRoomServiceClient(ctx)
+func (s *sSysToken) resolveIdentityAndHost(ctx context.Context, meeting *entity.Meeting, user *model.Identity) (identity string, isHost bool, err error) {
+	if user != nil {
+		// 每次进房唯一 identity，防止同账号再进时踢掉已在房会话
+		identity, err = newMemberIdentity(user.Id)
+		if err != nil {
+			return "", false, gerror.Wrap(err, "生成参与者身份失败")
+		}
+		// 主持人固定为会议室预定人，不转让、不抢占
+		isHost = meeting.HostId == user.Id
+		return identity, isHost, nil
+	}
+
+	identity, err = generateIdentity()
 	if err != nil {
-		return false, err
+		return "", false, gerror.Wrap(err, "生成参与者身份失败")
 	}
-	participants, err := listRoomParticipants(ctx, client, room)
-	if err != nil {
-		return false, err
-	}
-
-	live := make(map[string]struct{}, len(participants))
-	for _, p := range participants {
-		if p != nil && p.Identity != "" {
-			live[p.Identity] = struct{}{}
-		}
-	}
-
-	// 空房：旧主持缓存作废，重新抢（并发时只有一人能 SetIfNotExist 成功）
-	if len(live) == 0 {
-		if _, remErr := cache.Instance().Remove(ctx, key); remErr != nil {
-			return false, gerror.Wrap(remErr, "清除空房主持人缓存失败")
-		}
-		ok, setErr := cache.Instance().SetIfNotExist(ctx, key, identity, hostTTL)
-		if setErr != nil {
-			return false, gerror.Wrap(setErr, "写入主持人缓存失败")
-		}
-		return ok, nil
-	}
-
-	ok, err := cache.Instance().SetIfNotExist(ctx, key, identity, hostTTL)
-	if err != nil {
-		return false, gerror.Wrap(err, "写入主持人缓存失败")
-	}
-	if ok {
-		return true, nil
-	}
-
-	val, err := cache.Instance().Get(ctx, key)
-	if err != nil {
-		return false, gerror.Wrap(err, "读取主持人缓存失败")
-	}
-	currentHost := ""
-	if val != nil && !val.IsNil() {
-		currentHost = val.String()
-	}
-	// 房内已有人，但缓存主持人已不在 → 接任
-	if currentHost == "" {
-		if err = cache.Instance().Set(ctx, key, identity, hostTTL); err != nil {
-			return false, gerror.Wrap(err, "写入主持人缓存失败")
-		}
-		return true, nil
-	}
-	if _, inRoom := live[currentHost]; !inRoom {
-		if err = cache.Instance().Set(ctx, key, identity, hostTTL); err != nil {
-			return false, gerror.Wrap(err, "写入主持人缓存失败")
-		}
-		return true, nil
-	}
-
-	return false, nil
+	return identity, false, nil
 }
 
 func (s *sSysToken) checkRateLimit(ctx context.Context, limit int) error {
@@ -203,5 +201,5 @@ func generateIdentity() (string, error) {
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("u_%s", hex.EncodeToString(buf)), nil
+	return fmt.Sprintf("g_%s", hex.EncodeToString(buf)), nil
 }

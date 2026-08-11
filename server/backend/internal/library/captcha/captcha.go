@@ -1,7 +1,6 @@
 // Package captcha
 // @Link  https://github.com/bufanyun/hotgo
 // @Copyright  Copyright (c) 2023 HotGo CLI
-// @Author  Ms <133814250@qq.com>
 // @License  https://github.com/bufanyun/hotgo/blob/master/LICENSE
 package captcha
 
@@ -22,40 +21,33 @@ var store = base64Captcha.DefaultMemStore
 func Generate(ctx context.Context, captchaType int) (id string, base64 string) {
 	var err error
 
+	// 与深色玻璃登录面板更协调的低饱和底色
+	bg := &color.RGBA{R: 42, G: 52, B: 68, A: 255}
+
 	switch captchaType {
 	// 算数
 	case consts.CaptchaTypeMath:
 		driver := &base64Captcha.DriverMath{
-			Height:          42,
+			Height:          40,
 			Width:           100,
 			NoiseCount:      0,
 			ShowLineOptions: 0,
-			BgColor: &color.RGBA{
-				R: 255,
-				G: 250,
-				B: 250,
-				A: 250,
-			},
-			Fonts: []string{"chromohv.ttf"},
+			BgColor:         bg,
+			Fonts:           []string{"chromohv.ttf"},
 		}
 		c := base64Captcha.NewCaptcha(driver.ConvertFonts(), store)
 		id, base64, _, err = c.Generate()
 	// 字符
 	default:
 		driver := &base64Captcha.DriverString{
-			Height: 42,
-			Width:  100,
-			//NoiseCount:      50,
-			//ShowLineOptions: 20,
-			Length: 4,
-			BgColor: &color.RGBA{
-				R: 255,
-				G: 250,
-				B: 250,
-				A: 250,
-			},
-			Source: "abcdefghjkmnpqrstuvwxyz23456789", // abcdefghjkmnpqrstuvwxyz23456789
-			Fonts:  []string{"chromohv.ttf"},
+			Height:          40,
+			Width:           100,
+			NoiseCount:      0,
+			ShowLineOptions: 0,
+			Length:          4,
+			BgColor:         bg,
+			Source:          "ABCDEFGHJKLMNPQRSTUVWXYZ23456789",
+			Fonts:           []string{"chromohv.ttf"},
 		}
 		c := base64Captcha.NewCaptcha(driver.ConvertFonts(), store)
 		id, base64, _, err = c.Generate()

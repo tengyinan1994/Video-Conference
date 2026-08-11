@@ -26,20 +26,25 @@ import {
 } from '@ant-design/icons-vue'
 import MediaTrack from '@/components/MediaTrack.vue'
 import QualityBars from '@/components/QualityBars.vue'
+import ThemeToggle from '@/components/ThemeToggle.vue'
 import { kickParticipant, muteAllParticipants, claimHost } from '@/api/conference'
 import { ApiError } from '@/utils/request'
+import { isLoggedIn } from '@/stores/auth'
 import { useLiveKitRoom } from '@/composables/useLiveKitRoom'
 
 interface SessionPayload {
   serverUrl: string
   token: string
   room: string
+  title?: string
   identity: string
   nickname: string
   expiresAt: number
   isHost: boolean
   enableMic?: boolean
   enableCamera?: boolean
+  fromShare?: boolean
+  shareCode?: string
 }
 
 const route = useRoute()
@@ -102,14 +107,12 @@ const statusText = computed(() => {
 const isHost = computed(() => !!session.value?.isHost)
 
 async function syncHostRole() {
+  // 主持权仅来自预定人（进房 Token 的 isHost），不再自动接任/抢占
   if (!session.value || status.value !== 'connected') return
-  if (session.value.isHost) return
+  if (!session.value.isHost) return
   try {
-    const claimed = await claimHost(session.value.room, session.value.identity)
-    if (claimed.isHost && session.value) {
-      session.value = { ...session.value, isHost: true }
-      sessionStorage.setItem('vc.session', JSON.stringify(session.value))
-    }
+    // 预定主持人进房后刷新 LiveKit metadata，便于其他人看到「主持」标记
+    await claimHost(session.value.room, session.value.identity)
   } catch {
     // ignore
   }
@@ -143,19 +146,19 @@ async function enter() {
   const raw = sessionStorage.getItem('vc.session')
   if (!raw) {
     message.warning('缺少进房凭证，请重新加入')
-    await router.replace({ name: 'join' })
+    await leaveToEntry()
     return
   }
   const parsed = JSON.parse(raw) as SessionPayload
   if (parsed.room !== route.params.room) {
     message.warning('房间不匹配，请重新加入')
-    await router.replace({ name: 'join' })
+    await leaveToEntry()
     return
   }
   if (parsed.expiresAt * 1000 < Date.now()) {
     message.error('票据已过期，请重新进入')
     sessionStorage.removeItem('vc.session')
-    await router.replace({ name: 'join' })
+    await leaveToEntry(parsed)
     return
   }
   session.value = parsed
@@ -174,10 +177,24 @@ async function enter() {
   }
 }
 
+async function leaveToEntry(payload?: SessionPayload | null) {
+  const s = payload ?? session.value
+  if (s?.fromShare && s.shareCode) {
+    await router.replace({ name: 'join', params: { shareCode: s.shareCode } })
+    return
+  }
+  if (isLoggedIn()) {
+    await router.replace({ name: 'lobby' })
+  } else {
+    await router.replace({ name: 'login' })
+  }
+}
+
 async function leave() {
   await disconnect()
+  const s = session.value
   sessionStorage.removeItem('vc.session')
-  await router.replace({ name: 'join' })
+  await leaveToEntry(s)
 }
 
 async function onSendChat() {
@@ -252,16 +269,6 @@ watch(
   { deep: true },
 )
 
-// 其他人离开后只剩自己 → 自动接任主持
-watch(
-  () => participants.value.length,
-  (n) => {
-    if (n === 1 && status.value === 'connected' && session.value && !session.value.isHost) {
-      void syncHostRole()
-    }
-  },
-)
-
 onMounted(() => {
   void enter()
 })
@@ -271,14 +278,17 @@ onMounted(() => {
   <div class="room">
     <header class="top">
       <div class="top-left">
-        <strong>房间 {{ route.params.room }}</strong>
+        <strong>{{ session?.title || `房间 ${route.params.room}` }}</strong>
         <Tag class="tag" :color="status === 'connected' ? 'success' : 'processing'">
           {{ statusText }}
         </Tag>
         <Tag v-if="isHost" color="gold">主持人</Tag>
       </div>
-      <div v-if="session" class="meta">
-        {{ session.nickname }} · {{ session.identity }}
+      <div class="top-right">
+        <div v-if="session" class="meta">
+          {{ session.nickname }}
+        </div>
+        <ThemeToggle />
       </div>
     </header>
 
@@ -568,44 +578,58 @@ onMounted(() => {
 
 <style scoped>
 .room {
+  --brand: #f3a04c;
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
-  background: #0b1220;
-  color: #e2e8f0;
+  color: var(--vc-ink);
   display: flex;
   flex-direction: column;
+  background: var(--vc-page-grad);
+  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', Inter, sans-serif;
 }
 .top {
   flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 20px;
-  border-bottom: 1px solid #1e293b;
+  gap: 12px;
+  margin: 12px 16px 0;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--vc-line);
+  background: var(--vc-panel);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--vc-shadow);
 }
 .top-left {
   display: flex;
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
+  color: var(--vc-ink);
+}
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .tag {
   margin-left: 8px;
 }
 .meta {
-  color: #94a3b8;
+  color: var(--vc-muted);
   font-size: 13px;
 }
 .banner {
   flex-shrink: 0;
-  margin: 12px 20px 0;
+  margin: 12px 16px 0;
 }
 .stage {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 16px 20px 8px;
+  padding: 14px 16px 8px;
   display: flex;
   flex-direction: column;
 }
@@ -633,15 +657,17 @@ onMounted(() => {
   gap: 10px;
   padding: 16px 12px;
   border-radius: 16px;
-  background: #111827;
-  border: 2px solid transparent;
+  background: var(--vc-panel-solid);
+  border: 2px solid var(--vc-line);
+  box-shadow: var(--vc-shadow);
+  color: var(--vc-ink);
   transition: border-color 0.15s ease;
 }
 .avatar-card.speaking {
-  border-color: #22c55e;
+  border-color: var(--vc-live);
 }
 .avatar-card.local {
-  background: #0f172a;
+  background: var(--vc-item-hover);
 }
 .avatar-circle {
   width: 72px;
@@ -651,8 +677,8 @@ onMounted(() => {
   place-items: center;
   font-size: 28px;
   font-weight: 600;
-  color: #e2e8f0;
-  background: linear-gradient(145deg, #334155, #1e293b);
+  color: #fff;
+  background: linear-gradient(145deg, #f3a04c, #ef4444 75%);
 }
 .avatar-name {
   font-size: 14px;
@@ -660,6 +686,7 @@ onMounted(() => {
   text-align: center;
   word-break: break-word;
   max-width: 100%;
+  color: var(--vc-ink);
 }
 .avatar-meta {
   display: flex;
@@ -668,7 +695,7 @@ onMounted(() => {
   gap: 6px;
   flex-wrap: wrap;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--vc-muted);
   min-height: 16px;
 }
 .speaker-main {
@@ -686,27 +713,28 @@ onMounted(() => {
 .side-hint {
   margin: 0;
   font-size: 11px;
-  color: #64748b;
+  color: var(--vc-muted);
   text-align: center;
 }
 .tile.side.clickable {
   cursor: pointer;
 }
 .tile.side.clickable:hover {
-  border-color: #38bdf8;
+  border-color: var(--brand);
 }
 .tile.side.active {
-  border-color: #38bdf8;
-  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.35);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 35%, transparent);
 }
 .tile {
   position: relative;
   min-height: 0;
   height: 100%;
-  background: #111827;
-  border-radius: 12px;
+  background: var(--vc-panel-solid);
+  border-radius: 14px;
   overflow: hidden;
-  border: 2px solid transparent;
+  border: 2px solid var(--vc-line);
+  box-shadow: var(--vc-shadow);
   transition: border-color 0.15s ease;
 }
 .tile.main {
@@ -719,8 +747,8 @@ onMounted(() => {
   flex-shrink: 0;
 }
 .tile.speaking {
-  border-color: #22c55e;
-  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35);
+  border-color: var(--vc-live);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vc-live) 35%, transparent);
 }
 .placeholder {
   width: 100%;
@@ -728,8 +756,8 @@ onMounted(() => {
   display: grid;
   place-items: center;
   padding: 16px;
-  color: #94a3b8;
-  background: #111827;
+  color: var(--vc-muted);
+  background: var(--vc-item-hover);
 }
 .placeholder-name {
   max-width: 100%;
@@ -738,6 +766,7 @@ onMounted(() => {
   line-height: 1.3;
   text-align: center;
   word-break: break-word;
+  color: var(--vc-ink-soft);
 }
 .placeholder.sm .placeholder-name {
   font-size: 14px;
@@ -748,14 +777,17 @@ onMounted(() => {
   bottom: 10px;
   padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.75);
+  background: color-mix(in srgb, var(--vc-panel-solid) 82%, transparent);
+  color: var(--vc-ink);
+  border: 1px solid var(--vc-line);
+  backdrop-filter: blur(8px);
   font-size: 12px;
   display: inline-flex;
   align-items: center;
   max-width: calc(100% - 20px);
 }
 .empty {
-  color: #94a3b8;
+  color: var(--vc-muted);
   padding: 40px 0;
 }
 .controls {
@@ -764,9 +796,13 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  padding: 12px 16px 16px;
-  background: rgba(15, 23, 42, 0.92);
-  border-top: 1px solid #1e293b;
+  margin: 0 16px 16px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--vc-panel);
+  border: 1px solid var(--vc-line);
+  box-shadow: var(--vc-shadow);
+  backdrop-filter: blur(12px);
 }
 .devices {
   display: flex;
@@ -781,7 +817,7 @@ onMounted(() => {
 }
 .device-label {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--vc-muted);
   line-height: 1;
 }
 .member-row {
@@ -790,7 +826,8 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 10px 0;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--vc-line);
+  color: var(--vc-ink);
 }
 .member-name {
   display: flex;
@@ -800,7 +837,7 @@ onMounted(() => {
   font-weight: 500;
 }
 .member-sub {
-  color: #64748b;
+  color: var(--vc-muted);
   font-size: 12px;
   margin-top: 2px;
 }
@@ -810,6 +847,8 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   height: 100%;
+  background: var(--vc-panel-solid);
+  color: var(--vc-ink);
 }
 .chat-list {
   flex: 1;
@@ -819,6 +858,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  background: var(--vc-bg0);
 }
 .chat-row {
   display: flex;
@@ -843,28 +883,31 @@ onMounted(() => {
 .chat-name {
   font-size: 12px;
   font-weight: 500;
-  color: #64748b;
+  color: var(--vc-muted);
 }
 .chat-time {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--vc-muted);
+  opacity: 0.8;
 }
 .chat-bubble {
   padding: 8px 12px;
   border-radius: 12px 12px 12px 4px;
-  background: #f1f5f9;
-  color: #0f172a;
+  background: var(--vc-panel-solid);
+  border: 1px solid var(--vc-line);
+  color: var(--vc-ink);
   word-break: break-word;
   line-height: 1.45;
   font-size: 14px;
 }
 .chat-row.mine .chat-bubble {
   border-radius: 12px 12px 4px 12px;
-  background: #1677ff;
+  background: var(--brand);
+  border-color: var(--brand);
   color: #fff;
 }
 .chat-empty {
-  color: #94a3b8;
+  color: var(--vc-muted);
   text-align: center;
   padding: 48px 0;
   margin: auto;
@@ -874,8 +917,8 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   padding: 12px 16px;
-  border-top: 1px solid #e2e8f0;
-  background: #fff;
+  border-top: 1px solid var(--vc-line);
+  background: var(--vc-panel-solid);
 }
 @media (max-width: 800px) {
   .stage.speaker {
@@ -887,6 +930,11 @@ onMounted(() => {
   }
   .tile.side {
     width: 160px;
+  }
+  .top,
+  .controls {
+    margin-left: 10px;
+    margin-right: 10px;
   }
 }
 </style>

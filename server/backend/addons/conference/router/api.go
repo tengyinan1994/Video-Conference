@@ -12,14 +12,23 @@ import (
 	"github.com/gogf/gf/v2/net/ghttp"
 )
 
-// Api 前台路由（公开 Token 接口放在 ApiAuth 之前）
+// Api 前台路由：公开接口在前，需登录接口走 ApiAuth
 func Api(ctx context.Context, group *ghttp.RouterGroup) {
 	prefix := addons.RouterPrefix(ctx, consts.AppApi, global.GetSkeleton().Name)
 	group.Group(prefix, func(group *ghttp.RouterGroup) {
 		group.Bind(
+			api.AuthPublic,
+			api.MeetingPublic,
 			api.Token,
 			api.Room,
 		)
-		group.Middleware(service.Middleware().ApiAuth)
+
+		group.Group("/", func(group *ghttp.RouterGroup) {
+			group.Middleware(service.Middleware().ApiAuth)
+			group.Bind(
+				api.Auth,
+				api.Meeting,
+			)
+		})
 	})
 }

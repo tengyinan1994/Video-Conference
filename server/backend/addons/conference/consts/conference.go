@@ -9,6 +9,8 @@ const (
 	MaxRoomNameLen = 64
 	// MaxNicknameLen 昵称最大长度
 	MaxNicknameLen = 32
+	// MaxMeetingTitleLen 会议名称最大长度
+	MaxMeetingTitleLen = 64
 	// RateLimitCachePrefix 限流缓存 key 前缀
 	RateLimitCachePrefix = "conference:token:rate:"
 	// HostCachePrefix 房间主持人缓存 key 前缀
@@ -19,4 +21,28 @@ const (
 	RoleHost = "host"
 	// RoleMember 参与者 metadata 角色：普通成员
 	RoleMember = "member"
+
+	// MeetingTable 业务会议室表
+	MeetingTable = "hg_addon_conference_meeting"
+
+	// MeetingStatusScheduled 预定
+	MeetingStatusScheduled = "scheduled"
+	// MeetingStatusOngoing 进行中（含结束后宽限期）
+	MeetingStatusOngoing = "ongoing"
+	// MeetingStatusEnded 已结束（手动结束或 end_at+宽限期）
+	MeetingStatusEnded = "ended"
+	// MeetingStatusReleased 旧版「已释放」，兼容读库后归一为 ended
+	MeetingStatusReleased = "released"
+
+	// MeetingReleaseGraceHours 结束后自动结束宽限（小时）
+	MeetingReleaseGraceHours = 2
+
+	// MeetingListTabOngoing 进行中
+	MeetingListTabOngoing = "ongoing"
+	// MeetingListTabScheduled 预定
+	MeetingListTabScheduled = "scheduled"
+	// MeetingListTabAll 全部（含历史已结束；已删除的不在表中）
+	MeetingListTabAll = "all"
+	// MeetingListTabEnded 历史（已结束）
+	MeetingListTabEnded = "ended"
 )

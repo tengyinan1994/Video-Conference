@@ -26,7 +26,7 @@ type MuteAllRes struct {
 
 // ClaimHostReq 进房后认领/同步主持人（空房或原主持已离会时可接任）
 type ClaimHostReq struct {
-	g.Meta `path:"/room/claimHost" method:"post" tags:"视频会议" summary:"认领主持人"`
+	g.Meta `path:"/room/claimHost" method:"post" tags:"视频会议" summary:"同步预定主持人标记（不转让）"`
 	sysin.RoomClaimHostInp
 }
 
