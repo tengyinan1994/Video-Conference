@@ -17,7 +17,7 @@ gfcli:
   docker:
     build: "-a amd64 -s linux -p temp -ew"   # 构建参数
     tagPrefixes:                             # 该docker的标记前缀，用于docker推送，请替换成你自己的
-      - ccr.ccs.tencentyun.com/bufanyun
+      - ccr.ccs.tencentyun.com/video-conference
 
 
   gen:

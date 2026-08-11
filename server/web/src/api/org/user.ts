@@ -55,19 +55,3 @@ export function GetMemberView(params) {
     params,
   });
 }
-
-export function AddMemberBalance(params) {
-  return http.request({
-    url: '/member/addBalance',
-    method: 'POST',
-    params,
-  });
-}
-
-export function AddMemberIntegral(params) {
-  return http.request({
-    url: '/member/addIntegral',
-    method: 'POST',
-    params,
-  });
-}

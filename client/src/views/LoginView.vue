@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Button, Checkbox, Form, Input, message } from 'ant-design-vue'
+import { Button, Form, Input, message } from 'ant-design-vue'
 import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons-vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { fetchCaptcha, fetchLoginConfig, login } from '@/api/auth'
@@ -16,7 +16,6 @@ const route = useRoute()
 const loading = ref(false)
 const captchaOn = ref(true)
 const captchaImg = ref('')
-const autoLogin = ref(true)
 const projectName = ref('视频会议系统')
 
 const form = reactive({
@@ -46,10 +45,6 @@ async function loadConfig() {
     captchaOn.value = true
   }
   if (captchaOn.value) await loadCaptcha()
-}
-
-function handleResetPassword() {
-  message.info('如果你忘记了密码，请联系管理员找回')
 }
 
 async function onSubmit() {
@@ -170,11 +165,6 @@ onMounted(() => {
               />
             </div>
           </Form.Item>
-
-          <div class="form-meta">
-            <Checkbox v-model:checked="autoLogin">自动登录</Checkbox>
-            <button type="button" class="link-btn" @click="handleResetPassword">忘记密码？</button>
-          </div>
 
           <Button
             class="login-btn"
@@ -421,40 +411,6 @@ onMounted(() => {
   flex-shrink: 0;
   /* 压低库默认的高饱和随机配色，贴近玻璃面板 */
   filter: saturate(0.35) contrast(1.08) brightness(1.05);
-}
-
-.form-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 2px 0 24px;
-}
-
-.form-meta :deep(.ant-checkbox-wrapper) {
-  color: var(--login-ink-soft);
-}
-
-.form-meta :deep(.ant-checkbox-inner) {
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.28);
-}
-
-.form-meta :deep(.ant-checkbox-checked .ant-checkbox-inner) {
-  background: var(--login-brand);
-  border-color: var(--login-brand);
-}
-
-.link-btn {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: rgba(226, 232, 240, 0.78);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.link-btn:hover {
-  color: #fff;
 }
 
 .login-btn {

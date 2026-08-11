@@ -52,19 +52,6 @@
           批量删除
         </n-button>
 
-        <n-button
-          type="success"
-          @click="handleInviteQR(userStore.info?.inviteCode)"
-          class="min-left-space"
-          v-if="userStore.loginConfig?.loginRegisterSwitch === 1"
-        >
-          <template #icon>
-            <n-icon>
-              <QrCodeOutline />
-            </n-icon>
-          </template>
-          邀请注册
-        </n-button>
       </template>
     </BasicTable>
 
@@ -206,33 +193,6 @@
       </template>
     </n-modal>
 
-    <AddBalance
-      @reload-table="reloadTable"
-      @update-show-modal="updateBalanceShowModal"
-      :showModal="showBalanceModal"
-      :formParams="formParams"
-    />
-
-    <AddIntegral
-      @reload-table="reloadTable"
-      @update-show-modal="updateIntegralShowModal"
-      :showModal="showIntegralModal"
-      :formParams="formParams"
-    />
-
-    <n-modal v-model:show="showQrModal" :show-icon="false" preset="dialog" title="邀请注册二维码">
-      <n-form class="py-4">
-        <div class="text-center">
-          <qrcode-vue :value="qrParams.qrUrl" :size="220" class="canvas" style="margin: 0 auto" />
-        </div>
-      </n-form>
-
-      <template #action>
-        <n-space>
-          <n-button @click="() => (showQrModal = false)">关闭</n-button>
-        </n-space>
-      </template>
-    </n-modal>
   </div>
 </template>
 
@@ -244,25 +204,16 @@
   import { Delete, Edit, List, ResetPwd } from '@/api/org/user';
   import { columns } from './columns';
   import { PlusOutlined, DeleteOutlined } from '@vicons/antd';
-  import { QrCodeOutline } from '@vicons/ionicons5';
   import { adaModalWidth, adaTableScrollX } from '@/utils/hotgo';
   import { getRandomString } from '@/utils/charset';
   import { cloneDeep } from 'lodash-es';
-  import QrcodeVue from 'qrcode.vue';
-  import AddBalance from './addBalance.vue';
-  import AddIntegral from './addIntegral.vue';
   import {
-    addNewState,
-    addState,
     register,
     defaultState,
     deptTreeOptions,
     roleTreeOptions,
   } from './model';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { useUserStore } from '@/store/modules/user';
-  import { LoginRoute } from '@/router';
-  import { getNowUrl } from '@/utils/urlUtils';
   import { useDictStore } from '@/store/modules/dict';
 
   interface Props {
@@ -283,9 +234,6 @@
 
   const dict = useDictStore();
   const { hasPermission } = usePermission();
-  const userStore = useUserStore();
-  const showIntegralModal = ref(false);
-  const showBalanceModal = ref(false);
   const message = useMessage();
   const actionRef = ref();
   const dialog = useDialog();
@@ -296,11 +244,6 @@
   const batchDeleteDisabled = ref(true);
   const checkedIds = ref([]);
   const formParams = ref<any>();
-  const showQrModal = ref(false);
-  const qrParams = ref({
-    name: '',
-    qrUrl: '',
-  });
 
   const dialogWidth = computed(() => {
     return adaModalWidth();
@@ -338,19 +281,6 @@
           if (key === 0) {
             return handleResetPwd(record);
           }
-          if (key === 100) {
-            return handleAddBalance(record);
-          }
-          if (key === 101) {
-            return handleAddIntegral(record);
-          }
-          if (key === 102) {
-            if (userStore.loginConfig?.loginRegisterSwitch !== 1) {
-              message.error('管理员暂未开启此功能');
-              return;
-            }
-            return handleInviteQR(record.inviteCode);
-          }
         },
       });
     },
@@ -365,29 +295,12 @@
       return [];
     }
 
-    let list = [
+    return [
       {
         label: '重置密码',
         key: 0,
       },
-      {
-        label: '变更余额',
-        key: 100,
-      },
-      {
-        label: '变更积分',
-        key: 101,
-      },
     ];
-
-    if (userStore.loginConfig?.loginRegisterSwitch === 1) {
-      list.push({
-        label: 'TA的邀请码',
-        key: 102,
-      });
-    }
-
-    return list;
   }
 
   function addTable() {
@@ -496,30 +409,6 @@
 
   function handleUpdatePostValue(value) {
     formParams.value.postIds = value;
-  }
-
-  function updateBalanceShowModal(value) {
-    showBalanceModal.value = value;
-  }
-
-  function handleAddBalance(record: Recordable) {
-    showBalanceModal.value = true;
-    formParams.value = addNewState(record as addState);
-  }
-
-  function updateIntegralShowModal(value) {
-    showIntegralModal.value = value;
-  }
-
-  function handleAddIntegral(record: Recordable) {
-    showIntegralModal.value = true;
-    formParams.value = addNewState(record as addState);
-  }
-
-  function handleInviteQR(code: any) {
-    const domain = getNowUrl() + '#';
-    qrParams.value.qrUrl = domain + LoginRoute.path + '?scope=register&inviteCode=' + code;
-    showQrModal.value = true;
   }
 </script>
 

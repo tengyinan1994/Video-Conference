@@ -2,6 +2,7 @@ import { NAvatar, NTag, NText, SelectRenderLabel, SelectRenderTag } from 'naive-
 import { Component, h } from 'vue';
 import { BellOutlined, NotificationOutlined, SendOutlined } from '@vicons/antd';
 import { useDictStore } from '@/store/modules/dict';
+import { resolveAvatar } from '@/utils/avatar';
 
 export interface personOption {
   value: number;
@@ -36,31 +37,14 @@ export const renderMultipleSelectTag: SelectRenderTag = ({ option, handleClose }
             },
           },
           [
-            option.avatar !== ''
-              ? h(NAvatar, {
-                  src: option.avatar as string,
-                  round: true,
-                  size: 22,
-                  style: {
-                    marginRight: '4px',
-                  },
-                })
-              : h(
-                  NAvatar,
-                  {
-                    round: true,
-                    size: 22,
-                    style: {
-                      marginRight: '4px',
-                    },
-                  },
-                  {
-                    default: () =>
-                      option.label !== ''
-                        ? ((option?.label as string).substring(0, 1) as string)
-                        : ((option?.username as string).substring(0, 1) as string),
-                  }
-                ),
+            h(NAvatar, {
+              src: resolveAvatar(option.avatar as string),
+              round: true,
+              size: 22,
+              style: {
+                marginRight: '4px',
+              },
+            }),
             option.label as string,
           ]
         ),
@@ -78,25 +62,11 @@ export const renderLabel: SelectRenderLabel = (option) => {
       },
     },
     [
-      option.avatar !== ''
-        ? h(NAvatar, {
-            src: option.avatar as string,
-            round: true,
-            size: 'small',
-          })
-        : h(
-            NAvatar,
-            {
-              round: true,
-              size: 'small',
-            },
-            {
-              default: () =>
-                option.label !== ''
-                  ? ((option?.label as string).substring(0, 1) as string)
-                  : ((option?.username as string).substring(0, 2) as string),
-            }
-          ),
+      h(NAvatar, {
+        src: resolveAvatar(option.avatar as string),
+        round: true,
+        size: 'small',
+      }),
       h(
         'div',
         {

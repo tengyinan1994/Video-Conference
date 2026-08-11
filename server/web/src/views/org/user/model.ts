@@ -6,49 +6,7 @@ import { FormSchema, useForm } from '@/components/Form';
 import { defRangeShortcuts } from '@/utils/dateUtil';
 import { useDictStore, Option } from '@/store/modules/dict';
 
-// 增加余额/积分.
-
 const dict = useDictStore();
-
-export interface addState {
-  id: number;
-  username: string;
-  realName: string;
-  integral: number;
-  balance: number;
-  operateMode: number;
-  num: number | null;
-}
-
-export const addDefaultState = {
-  id: 0,
-  realName: '',
-  username: '',
-  integral: 0,
-  balance: 0,
-  operateMode: 1,
-  num: null,
-};
-
-export function addNewState(state: addState | null): addState {
-  if (state !== null) {
-    return cloneDeep(state);
-  }
-  return cloneDeep(addDefaultState);
-}
-
-export const operateModes = [
-  {
-    value: 1,
-    label: '加款',
-  },
-  {
-    value: 2,
-    label: '扣款',
-  },
-];
-
-export const addRules = {};
 
 // 用户列表.
 

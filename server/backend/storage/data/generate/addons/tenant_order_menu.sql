@@ -1,5 +1,5 @@
 -- hotgo自动生成菜单权限SQL 通常情况下只在首次生成代码时自动执行一次
--- 如需再次执行请先手动删除生成的菜单权限和SQL文件：/Users/mengshuai/Desktop/gosrc/hotgo_dev/server/storage/data/generate/addons/tenant_order_menu.sql
+-- 如需再次执行请先手动删除生成的菜单权限和SQL文件：/Users/developer/Desktop/gosrc/hotgo_dev/server/storage/data/generate/addons/tenant_order_menu.sql
 -- Version: 2.13.1
 -- Date: 2024-04-13 23:37:27
 -- Link https://github.com/bufanyun/hotgo

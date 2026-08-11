@@ -57,10 +57,6 @@
     </n-form-item>
 
     <n-space :vertical="true" :size="24">
-      <div class="flex-y-center justify-between">
-        <n-checkbox v-model:checked="autoLogin">自动登录</n-checkbox>
-        <n-button :text="true" @click="handleResetPassword">忘记密码？</n-button>
-      </div>
       <n-button
         type="primary"
         size="large"
@@ -108,7 +104,6 @@
   const formRef = ref();
   const message = useMessage();
   const loading = ref(false);
-  const autoLogin = ref(true);
   const codeBase64 = ref('');
   const loadingBar = useLoadingBar();
   const loadingBarTargetRef = ref<undefined | HTMLElement>(undefined);
@@ -164,10 +159,6 @@
     formInline.value.cid = data.cid;
     formInline.value.code = '';
     loadingBar.finish();
-  }
-
-  function handleResetPassword() {
-    message.info('如果你忘记了密码，请联系管理员找回');
   }
 
   async function handleLoginResp(request: Promise<any>) {

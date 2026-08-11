@@ -1,7 +1,6 @@
 // Package hgexample
 // @Link  https://github.com/bufanyun/hotgo
 // @Copyright  Copyright (c) 2023 HotGo CLI
-// @Author  Ms <133814250@qq.com>
 // @License  https://github.com/bufanyun/hotgo/blob/master/LICENSE
 package hgexample
 
@@ -38,7 +37,7 @@ func newModule() {
 			Logo:        "",
 			Brief:       "系统的一些功能案例",
 			Description: "系统自带的功能使用示例及其说明，包含一些简单的交互",
-			Author:      "孟帅",
+			Author:      "Video-Conference",
 			Version:     "v1.0.0", // 当该版本号高于已安装的版本号时，会提示可以更新
 		},
 		ctx: gctx.New(),

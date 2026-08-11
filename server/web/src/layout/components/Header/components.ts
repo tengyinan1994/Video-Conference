@@ -6,21 +6,18 @@ import {
   FullscreenOutlined,
   FullscreenExitOutlined,
   PoweroffOutlined,
-  GithubOutlined,
   LockOutlined,
   ReloadOutlined,
   LogoutOutlined,
   UserOutlined,
   CheckOutlined,
-  BellOutlined,
 } from '@vicons/antd';
 
-import { Refresh, LanguageOutline } from '@vicons/ionicons5';
+import { Refresh } from '@vicons/ionicons5';
 
 export default {
   SettingOutlined,
   LockOutlined,
-  GithubOutlined,
   SearchOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -31,7 +28,5 @@ export default {
   LogoutOutlined,
   UserOutlined,
   CheckOutlined,
-  BellOutlined,
   Refresh,
-  LanguageOutline,
 };

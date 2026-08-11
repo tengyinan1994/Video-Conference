@@ -1,6 +1,7 @@
 import { h } from 'vue';
 import { NAvatar, NTag, NText } from 'naive-ui';
 import { formatBefore } from '@/utils/dateUtil';
+import { resolveAvatar } from '@/utils/avatar';
 
 export const columns = [
   {
@@ -29,25 +30,11 @@ export const columns = [
     key: 'avatar',
     width: 70,
     render(row) {
-      if (row.avatar !== '') {
-        return h(NAvatar, {
-          circle: true,
-          size: 'small',
-          src: row.avatar,
-        });
-      } else {
-        return h(
-          NAvatar,
-          {
-            circle: true,
-            size: 'small',
-          },
-          {
-            default: () =>
-              row.realName !== '' ? row.realName.substring(0, 1) : row.username.substring(0, 2),
-          }
-        );
-      }
+      return h(NAvatar, {
+        circle: true,
+        size: 'small',
+        src: resolveAvatar(row.avatar),
+      });
     },
   },
   {
@@ -88,22 +75,6 @@ export const columns = [
           default: () => row.deptName,
         }
       );
-    },
-  },
-  {
-    title: '余额',
-    key: 'balance',
-    width: 120,
-    render(row) {
-      return '￥' + Number(row.balance).toFixed(2);
-    },
-  },
-  {
-    title: '积分',
-    key: 'integral',
-    width: 120,
-    render(row) {
-      return Number(row.integral).toFixed(2);
     },
   },
   {

@@ -37,8 +37,8 @@
 
     img {
       width: auto;
-      height: 30px;
-      border-radius: 20px;
+      height: 32px;
+      border-radius: 8px;
     }
 
     .title {

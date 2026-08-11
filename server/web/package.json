@@ -3,9 +3,8 @@
   "type": "module",
   "version": "2.18.9",
   "author": {
-    "name": "MengShuai",
-    "email": "133814250@qq.com",
-    "url": "https://github.com/bufanyun/hotgo"
+    "name": "Video Conference",
+    "email": "admin@example.com"
   },
   "private": true,
   "scripts": {

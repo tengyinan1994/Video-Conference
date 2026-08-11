@@ -2,12 +2,14 @@
   "mcpServers": {
     "video-conference-mysql": {
       "type": "stdio",
-      "command": "/bin/zsh",
-      "args": [
-        "-lc",
-        "cd '/Users/chaoming/Documents/ProjectCode/tyn-demo/Video-Conference' && exec npx -y @bytebase/dbhub@latest --transport stdio --dsn \"$DBHUB_DSN\""
-      ],
-      "envFile": "${workspaceFolder}/.cursor/dbhub.env"
+      "command": "mysql_mcp_server",
+      "env": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "video_conference_app",
+        "MYSQL_PASSWORD": "U5SZRYUbVaPmNER7mYUcjBb7",
+        "MYSQL_DATABASE": "video_conference"
+      }
     }
   }
 }

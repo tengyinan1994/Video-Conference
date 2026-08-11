@@ -20,6 +20,7 @@ import { VNode } from 'vue';
 import { DictType, useDictStore } from '@/store/modules/dict';
 import { fallbackSrc } from '@/utils/hotgo';
 import { getFileExt } from '@/utils/urlUtils';
+import { resolveAvatar } from '@/utils/avatar';
 
 export const renderTooltip = (trigger, content) => {
   return h(NTooltip, null, {
@@ -211,7 +212,7 @@ export const renderPopoverMemberSumma = (member: MemberSumma | null | undefined)
             h('tbody', [
               h('tr', { align: 'center' }, [
                 h('td', member.id),
-                h('td', h(NAvatar, { src: member.avatar, round: true, size: 'small' })),
+                h('td', h(NAvatar, { src: resolveAvatar(member.avatar), round: true, size: 'small' })),
                 h('td', member.realName),
                 h('td', member.username),
               ]),

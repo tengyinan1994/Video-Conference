@@ -137,7 +137,7 @@
 
 * 本项目包含的第三方源码和二进制文件之版权信息另行标注。
 
-* 版权所有Copyright © 2020-2026 by Ms (https://github.com/bufanyun/hotgo)
+* 基于 HotGo 二次开发
 
 * All rights reserved。
 

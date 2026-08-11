@@ -1,6 +1,7 @@
 import { h } from 'vue';
 import { NAvatar, NTag } from 'naive-ui';
 import { timestampToTime, formatBefore } from '@/utils/dateUtil';
+import { resolveAvatar } from '@/utils/avatar';
 
 export const columns = [
   {
@@ -46,24 +47,11 @@ export const columns = [
     key: 'avatar',
     width: 80,
     render(row) {
-      if (row.avatar !== '') {
-        return h(NAvatar, {
-          circle: true,
-          size: 'small',
-          src: row.avatar,
-        });
-      } else {
-        return h(
-          NAvatar,
-          {
-            circle: true,
-            size: 'small',
-          },
-          {
-            default: () => row.username.substring(0, 2),
-          }
-        );
-      }
+      return h(NAvatar, {
+        circle: true,
+        size: 'small',
+        src: resolveAvatar(row.avatar),
+      });
     },
   },
   {

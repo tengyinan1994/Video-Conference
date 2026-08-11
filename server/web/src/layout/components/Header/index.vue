@@ -90,38 +90,14 @@
         v-for="item in iconList"
         :key="item.icon.name"
       >
-        <n-popover
-          placement="bottom"
-          v-if="item.icon === 'BellOutlined'"
-          trigger="click"
-          :width="getIsMobile ? 276 : 420"
-        >
+        <n-tooltip placement="bottom">
           <template #trigger>
-            <n-tooltip placement="bottom">
-              <template #trigger>
-                <n-badge :value="notificationStore.getUnreadCount()" :max="99" processing>
-                  <n-icon size="18">
-                    <BellOutlined />
-                  </n-icon>
-                </n-badge>
-              </template>
-              <span>{{ item.tips }}</span>
-            </n-tooltip>
+            <n-icon size="18">
+              <component :is="item.icon" v-on="item.eventObject || {}" />
+            </n-icon>
           </template>
-
-          <SystemMessage />
-        </n-popover>
-
-        <div v-else>
-          <n-tooltip placement="bottom">
-            <template #trigger>
-              <n-icon size="18">
-                <component :is="item.icon" v-on="item.eventObject || {}" />
-              </n-icon>
-            </template>
-            <span>{{ item.tips }}</span>
-          </n-tooltip>
-        </div>
+          <span>{{ item.tips }}</span>
+        </n-tooltip>
       </div>
       <!--切换全屏-->
       <div class="layout-header-trigger layout-header-trigger-min">
@@ -135,35 +111,11 @@
         </n-tooltip>
       </div>
 
-      <!-- 国际化 -->
-      <div
-        class="layout-header-trigger layout-header-trigger-min"
-        v-if="userStore.loginConfig?.i18nSwitch"
-      >
-        <n-dropdown
-          :value="i18nStore.getLocale()"
-          trigger="click"
-          @select="localeSelect"
-          :options="availableLocales"
-          show-arrow
-        >
-          <n-tooltip placement="bottom">
-            <template #trigger>
-              <n-icon size="18">
-                <LanguageOutline />
-              </n-icon>
-            </template>
-            <span>切换语言</span>
-          </n-tooltip>
-        </n-dropdown>
-      </div>
-
       <!-- 个人中心 -->
       <div class="layout-header-trigger layout-header-trigger-min">
         <n-dropdown trigger="click" @select="avatarSelect" :options="avatarOptions" show-arrow>
           <div class="avatar">
-            <n-avatar v-if="userStore.avatar" round :size="30" :src="userStore.avatar" />
-            <n-avatar v-else round :size="30">{{ userStore.realName }}</n-avatar>
+            <n-avatar round :size="30" :src="displayAvatar" />
           </div>
         </n-dropdown>
       </div>
@@ -182,10 +134,6 @@
   </div>
   <!--项目配置-->
   <ProjectSetting ref="drawerSetting" />
-
-  <template>
-    <n-notification-provider :max="3" />
-  </template>
 </template>
 
 <script lang="ts">
@@ -196,9 +144,7 @@
     ref,
     computed,
     unref,
-    watch,
     h,
-    onMounted,
   } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
   import components from './components';
@@ -206,12 +152,6 @@
     NDialogProvider,
     useDialog,
     useMessage,
-    NAvatar,
-    NTag,
-    NIcon,
-    useNotification,
-    NotificationReactive,
-    NButton,
     NText,
   } from 'naive-ui';
   import { TABS_ROUTES } from '@/store/mutation-types';
@@ -220,12 +160,8 @@
   import ProjectSetting from './ProjectSetting.vue';
   import { AsideMenu } from '@/layout/components/Menu';
   import { useProjectSetting } from '@/hooks/setting/useProjectSetting';
-  import { NotificationsOutline as NotificationsIcon } from '@vicons/ionicons5';
-  import SystemMessage from './SystemMessage.vue';
-  import { notificationStoreWidthOut } from '@/store/modules/notification';
-  import { getIcon } from '@/enums/systemMessageEnum';
-  import { availableLocales, useI18nStore } from '@/store/modules/i18n';
   import Search from './Search.vue';
+  import { resolveAvatar } from '@/utils/avatar';
 
   export default defineComponent({
     name: 'PageHeader',
@@ -234,7 +170,6 @@
       NDialogProvider,
       ProjectSetting,
       AsideMenu,
-      SystemMessage,
       Search,
     },
     props: {
@@ -246,9 +181,7 @@
       },
     },
     setup(props, { emit }) {
-      const i18nStore = useI18nStore();
       const userStore = useUserStore();
-      const notificationStore = notificationStoreWidthOut();
       const useLockscreen = useLockscreenStore();
       const message = useMessage();
       const dialog = useDialog();
@@ -264,6 +197,8 @@
       // const { username, avatar } = userStore?.info || {};
       const drawerSetting = ref();
       const projectName = userStore.loginConfig?.projectName;
+
+      const displayAvatar = computed(() => resolveAvatar(userStore.avatar));
 
       const state = reactive({
         // username: username || '',
@@ -386,17 +321,6 @@
         //   tips: '搜索',
         // },
         {
-          icon: 'GithubOutlined',
-          tips: 'github',
-          eventObject: {
-            click: () => window.open('https://github.com/bufanyun/hotgo'),
-          },
-        },
-        {
-          icon: 'BellOutlined',
-          tips: '我的消息',
-        },
-        {
           icon: 'LockOutlined',
           tips: '锁屏',
           eventObject: {
@@ -456,103 +380,15 @@
         }
       };
 
-      // 多久下拉菜单
-      const localeSelect = (key) => {
-        i18nStore.setLocale(key);
-        message.success('切换成功');
-        setTimeout(function () {
-          location.reload();
-        }, 800);
-      };
-
       function openSetting() {
         const { openDrawer } = drawerSetting.value;
         openDrawer();
       }
 
-      const notification = useNotification();
-      const getMessages = computed(() => {
-        return notificationStore.newMessage;
-      });
-      const nRef = ref<NotificationReactive | null>(null);
-      // 监听新消息，推送通知
-      watch(
-        getMessages,
-        (newVal, _oldVal) => {
-          if (newVal === null || newVal === undefined) {
-            return;
-          }
-
-          nRef.value = notification.create({
-            title: newVal.title,
-            description:
-              newVal.tagTitle === '' || newVal.tagTitle === undefined
-                ? undefined
-                : () =>
-                    h(
-                      NTag,
-                      {
-                        style: {
-                          marginRight: '6px',
-                        },
-                        type: newVal.tagProps?.type,
-                        bordered: false,
-                      },
-                      {
-                        default: () => newVal.tagTitle,
-                      }
-                    ),
-
-            content: () =>
-              newVal.content === '' || newVal.content === undefined
-                ? undefined
-                : h('div', { innerHTML: '<div>' + newVal.content + '</div>' }),
-            meta: newVal.createdAt,
-            avatar: () =>
-              newVal.senderAvatar !== '' || newVal.senderAvatar === undefined
-                ? h(NAvatar, {
-                    size: 'small',
-                    round: true,
-                    src: newVal.senderAvatar,
-                  })
-                : h(NIcon, null, { default: () => h(getIcon(newVal)) }),
-            action: () =>
-              h(
-                NButton,
-                {
-                  text: true,
-                  type: 'info',
-                  onClick: () => {
-                    (nRef.value as NotificationReactive).destroy();
-                    router.push({
-                      name: 'home_message',
-                      query: {
-                        type: newVal.type,
-                      },
-                    });
-                  },
-                },
-                {
-                  default: () => '查看详情',
-                }
-              ),
-            onClose: () => {
-              nRef.value = null;
-            },
-          });
-        },
-        { immediate: true, deep: true }
-      );
-
       const updateMenu = () => {
         emit('update:collapsed', !props.collapsed);
       };
 
-      onMounted(() => {
-        if (notificationStore.getUnreadCount() === 0) {
-          notificationStore.pullMessages();
-        }
-      });
       return {
         ...toRefs(state),
         iconList,
@@ -570,16 +406,11 @@
         getInverted,
         getMenuLocation,
         mixMenu,
-        NotificationsIcon,
-        SystemMessage,
-        notificationStore,
         getIsMobile,
         userStore,
         updateMenu,
         projectName,
-        localeSelect,
-        i18nStore,
-        availableLocales,
+        displayAvatar,
       };
     },
   });

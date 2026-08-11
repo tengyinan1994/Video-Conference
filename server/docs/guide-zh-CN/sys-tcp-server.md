@@ -33,7 +33,7 @@ tcp:
       group: "auth"                                                 # 分组名称
       name: "auth1"                                                 # 客户端名称
       address: "127.0.0.1:8099"                                     # 服务器地址
-      appId: "mengshuai"                                            # 应用名称
+      appId: "video-conference"                                            # 应用名称
       secretKey: "123456"                                           # 密钥
 
 ```
