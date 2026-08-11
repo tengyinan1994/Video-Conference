@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"hotgo/addons/conference/consts"
+	"hotgo/internal/model/input/form"
 
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/os/gtime"
@@ -147,4 +148,118 @@ type MeetingShareViewModel struct {
 	Status    string      `json:"status"`
 	ShareCode string      `json:"shareCode"`
 	CanJoin   bool        `json:"canJoin"`
+}
+
+// ========== 管理端 ==========
+
+// AdminMeetingListInp 管理端会议列表
+type AdminMeetingListInp struct {
+	form.PageReq
+	Id       int64         `json:"id" dc:"会议ID"`
+	Title    string        `json:"title" dc:"会议名称"`
+	HostName string        `json:"hostName" dc:"主持人"`
+	Status   string        `json:"status" dc:"有效状态：scheduled / ongoing / ended，空为全部"`
+	Keyword  string        `json:"keyword" dc:"关键词（名称/主持人/房间/分享码）"`
+	StartAt  []*gtime.Time `json:"startAt" dc:"开始时间范围"`
+}
+
+func (in *AdminMeetingListInp) Filter(ctx context.Context) (err error) {
+	in.Title = strings.TrimSpace(in.Title)
+	in.HostName = strings.TrimSpace(in.HostName)
+	in.Keyword = strings.TrimSpace(in.Keyword)
+	in.Status = strings.TrimSpace(in.Status)
+	if in.Status == "" {
+		return nil
+	}
+	switch in.Status {
+	case consts.MeetingStatusScheduled, consts.MeetingStatusOngoing, consts.MeetingStatusEnded:
+		return nil
+	default:
+		return gerror.New("无效的会议状态")
+	}
+}
+
+// AdminMeetingListModel 管理端列表项
+type AdminMeetingListModel struct {
+	Id         int64       `json:"id" dc:"会议ID"`
+	Title      string      `json:"title" dc:"会议名称"`
+	RoomName   string      `json:"roomName" dc:"房间名"`
+	HostId     int64       `json:"hostId" dc:"主持人ID"`
+	HostName   string      `json:"hostName" dc:"主持人"`
+	StartAt    *gtime.Time `json:"startAt" dc:"开始时间"`
+	EndAt      *gtime.Time `json:"endAt" dc:"结束时间"`
+	Status     string      `json:"status" dc:"有效状态"`
+	ShareCode  string      `json:"shareCode" dc:"分享码"`
+	ShareUrl   string      `json:"shareUrl" dc:"分享路径"`
+	Tab        string      `json:"tab" dc:"分区"`
+	CreatedBy  int64       `json:"createdBy" dc:"创建者"`
+	CreatedAt  *gtime.Time `json:"createdAt" dc:"创建时间"`
+	UpdatedAt  *gtime.Time `json:"updatedAt" dc:"更新时间"`
+	ReleasedAt *gtime.Time `json:"releasedAt" dc:"结束时间点"`
+}
+
+// AdminMeetingViewInp 管理端会议详情
+type AdminMeetingViewInp struct {
+	Id int64 `json:"id" v:"required#会议ID不能为空" dc:"会议ID"`
+}
+
+func (in *AdminMeetingViewInp) Filter(ctx context.Context) (err error) {
+	if in.Id <= 0 {
+		return gerror.New("会议ID不能为空")
+	}
+	return
+}
+
+// AdminMeetingViewModel 管理端会议详情
+type AdminMeetingViewModel struct {
+	*AdminMeetingListModel
+}
+
+// AdminMeetingEditInp 管理端新增/编辑会议（不受状态限制）
+type AdminMeetingEditInp struct {
+	Id       int64       `json:"id" dc:"会议ID，大于0为编辑"`
+	Title    string      `json:"title" v:"required#会议名称不能为空" dc:"会议名称"`
+	HostId   int64       `json:"hostId" dc:"主持人用户ID"`
+	HostName string      `json:"hostName" dc:"主持人显示名"`
+	StartAt  *gtime.Time `json:"startAt" v:"required#请填写开始时间" dc:"开始时间"`
+	EndAt    *gtime.Time `json:"endAt" v:"required#请填写结束时间" dc:"结束时间"`
+}
+
+func (in *AdminMeetingEditInp) Filter(ctx context.Context) (err error) {
+	in.Title = strings.TrimSpace(in.Title)
+	in.HostName = strings.TrimSpace(in.HostName)
+	if in.Title == "" {
+		return gerror.New("会议名称不能为空")
+	}
+	if utf8.RuneCountInString(in.Title) > consts.MaxMeetingTitleLen {
+		return gerror.Newf("会议名称最长 %d 个字符", consts.MaxMeetingTitleLen)
+	}
+	if in.StartAt == nil || in.EndAt == nil {
+		return gerror.New("请填写会议时间段")
+	}
+	if !in.EndAt.After(in.StartAt) {
+		return gerror.New("结束时间必须晚于开始时间")
+	}
+	return
+}
+
+// AdminMeetingDeleteInp 管理端删除会议（任意状态可删）
+type AdminMeetingDeleteInp struct {
+	Id interface{} `json:"id" v:"required#会议ID不能为空" dc:"会议ID，支持批量"`
+}
+
+func (in *AdminMeetingDeleteInp) Filter(ctx context.Context) (err error) {
+	return
+}
+
+// AdminMeetingReleaseInp 管理端结束会议
+type AdminMeetingReleaseInp struct {
+	Id int64 `json:"id" v:"required#会议ID不能为空" dc:"会议ID"`
+}
+
+func (in *AdminMeetingReleaseInp) Filter(ctx context.Context) (err error) {
+	if in.Id <= 0 {
+		return gerror.New("会议ID不能为空")
+	}
+	return
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gtime"
+	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/livekit/protocol/livekit"
 )
 
@@ -411,4 +412,219 @@ func generateShareCode() (string, error) {
 		return "", gerror.Wrap(err, "生成分享码失败")
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+// ========== 管理端（管理员可操作任意状态会议） ==========
+
+func (s *sSysMeeting) AdminList(ctx context.Context, in *sysin.AdminMeetingListInp) (list []*sysin.AdminMeetingListModel, totalCount int, err error) {
+	if err = in.Filter(ctx); err != nil {
+		return
+	}
+
+	now := gtime.Now()
+	graceEnd := now.Add(-time.Duration(consts.MeetingReleaseGraceHours) * time.Hour)
+	mod := meetingModel(ctx)
+
+	if in.Id > 0 {
+		mod = mod.Where("id", in.Id)
+	}
+	if in.Title != "" {
+		mod = mod.WhereLike("title", "%"+in.Title+"%")
+	}
+	if in.HostName != "" {
+		mod = mod.WhereLike("host_name", "%"+in.HostName+"%")
+	}
+	if in.Keyword != "" {
+		kw := "%" + in.Keyword + "%"
+		mod = mod.Where("(title LIKE ? OR host_name LIKE ? OR room_name LIKE ? OR share_code LIKE ?)", kw, kw, kw, kw)
+	}
+	if len(in.StartAt) == 2 {
+		mod = mod.WhereBetween("start_at", in.StartAt[0], in.StartAt[1])
+	}
+
+	switch in.Status {
+	case consts.MeetingStatusEnded:
+		mod = mod.WhereIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased})
+	case consts.MeetingStatusOngoing:
+		mod = mod.WhereNotIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased}).
+			WhereLTE("start_at", now).WhereGT("end_at", graceEnd)
+	case consts.MeetingStatusScheduled:
+		mod = mod.WhereNotIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased}).
+			WhereGT("start_at", now)
+	}
+
+	mod = mod.Page(in.Page, in.PerPage).OrderDesc("id")
+
+	var rows []*entity.Meeting
+	if err = mod.ScanAndCount(&rows, &totalCount, false); err != nil {
+		return nil, 0, gerror.Wrap(err, "查询会议列表失败")
+	}
+
+	list = make([]*sysin.AdminMeetingListModel, 0, len(rows))
+	for _, m := range rows {
+		if m == nil {
+			continue
+		}
+		list = append(list, toAdminMeetingItem(m))
+	}
+	return
+}
+
+func (s *sSysMeeting) AdminView(ctx context.Context, in *sysin.AdminMeetingViewInp) (res *sysin.AdminMeetingViewModel, err error) {
+	if err = in.Filter(ctx); err != nil {
+		return
+	}
+	var m *entity.Meeting
+	if err = meetingModel(ctx).Where("id", in.Id).Scan(&m); err != nil {
+		return nil, gerror.Wrap(err, "查询会议失败")
+	}
+	if m == nil {
+		return nil, gerror.New("会议不存在")
+	}
+	res = &sysin.AdminMeetingViewModel{AdminMeetingListModel: toAdminMeetingItem(m)}
+	return
+}
+
+func (s *sSysMeeting) AdminEdit(ctx context.Context, in *sysin.AdminMeetingEditInp) (err error) {
+	if err = in.Filter(ctx); err != nil {
+		return
+	}
+	user := contexts.GetUser(ctx)
+	if user == nil || user.Id <= 0 {
+		return gerror.New("请先登录")
+	}
+	now := gtime.Now()
+
+	// 编辑：任意状态可改名称与时间
+	if in.Id > 0 {
+		var m *entity.Meeting
+		if err = meetingModel(ctx).Where("id", in.Id).Scan(&m); err != nil {
+			return gerror.Wrap(err, "查询会议失败")
+		}
+		if m == nil {
+			return gerror.New("会议不存在")
+		}
+		data := g.Map{
+			"title":      in.Title,
+			"start_at":   in.StartAt,
+			"end_at":     in.EndAt,
+			"updated_at": now,
+		}
+		if in.HostId > 0 {
+			data["host_id"] = in.HostId
+		}
+		if in.HostName != "" {
+			data["host_name"] = in.HostName
+		}
+		if _, err = meetingModel(ctx).Where("id", in.Id).Data(data).Update(); err != nil {
+			return gerror.Wrap(err, "更新会议失败")
+		}
+		return nil
+	}
+
+	// 新增
+	hostId := in.HostId
+	hostName := in.HostName
+	if hostId <= 0 {
+		hostId = user.Id
+	}
+	if hostName == "" {
+		if hostId == user.Id {
+			hostName = displayName(user.Username, user.RealName)
+		} else {
+			hostName = fmt.Sprintf("用户%d", hostId)
+		}
+	}
+	status := consts.MeetingStatusScheduled
+	if !in.StartAt.After(now) && in.EndAt.After(now.Add(-time.Duration(consts.MeetingReleaseGraceHours)*time.Hour)) {
+		status = consts.MeetingStatusOngoing
+	}
+	roomName, err := generateRoomName()
+	if err != nil {
+		return err
+	}
+	shareCode, err := generateShareCode()
+	if err != nil {
+		return err
+	}
+	_, err = meetingModel(ctx).Data(g.Map{
+		"title":      in.Title,
+		"room_name":  roomName,
+		"host_id":    hostId,
+		"host_name":  hostName,
+		"start_at":   in.StartAt,
+		"end_at":     in.EndAt,
+		"status":     status,
+		"share_code": shareCode,
+		"created_by": user.Id,
+		"created_at": now,
+		"updated_at": now,
+	}).Insert()
+	if err != nil {
+		return gerror.Wrap(err, "创建会议失败")
+	}
+	return nil
+}
+
+func (s *sSysMeeting) AdminDelete(ctx context.Context, in *sysin.AdminMeetingDeleteInp) (err error) {
+	if err = in.Filter(ctx); err != nil {
+		return
+	}
+	ids := gconv.Int64s(in.Id)
+	if len(ids) == 0 {
+		return gerror.New("会议ID不能为空")
+	}
+
+	var rows []*entity.Meeting
+	if err = meetingModel(ctx).WhereIn("id", ids).Scan(&rows); err != nil {
+		return gerror.Wrap(err, "查询会议失败")
+	}
+	if _, err = meetingModel(ctx).WhereIn("id", ids).Delete(); err != nil {
+		return gerror.Wrap(err, "删除会议失败")
+	}
+	for _, m := range rows {
+		if m == nil {
+			continue
+		}
+		s.cleanupLiveKitRoom(ctx, m.RoomName)
+	}
+	return nil
+}
+
+func (s *sSysMeeting) AdminRelease(ctx context.Context, in *sysin.AdminMeetingReleaseInp) (err error) {
+	if err = in.Filter(ctx); err != nil {
+		return
+	}
+	var m *entity.Meeting
+	if err = meetingModel(ctx).Where("id", in.Id).Scan(&m); err != nil {
+		return gerror.Wrap(err, "查询会议失败")
+	}
+	if m == nil {
+		return gerror.New("会议不存在")
+	}
+	if isEndedStatus(m.Status) {
+		return nil
+	}
+	return s.endMeeting(ctx, m, true)
+}
+
+func toAdminMeetingItem(m *entity.Meeting) *sysin.AdminMeetingListModel {
+	item := toMeetingItem(m, 0)
+	return &sysin.AdminMeetingListModel{
+		Id:         m.Id,
+		Title:      m.Title,
+		RoomName:   m.RoomName,
+		HostId:     m.HostId,
+		HostName:   m.HostName,
+		StartAt:    m.StartAt,
+		EndAt:      m.EndAt,
+		Status:     item.Status,
+		ShareCode:  m.ShareCode,
+		ShareUrl:   item.ShareUrl,
+		Tab:        item.Tab,
+		CreatedBy:  m.CreatedBy,
+		CreatedAt:  m.CreatedAt,
+		UpdatedAt:  m.UpdatedAt,
+		ReleasedAt: m.ReleasedAt,
+	}
 }

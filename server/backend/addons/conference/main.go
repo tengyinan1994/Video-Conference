@@ -46,6 +46,7 @@ func (m *module) Start(option *addons.Option) (err error) {
 	global.Init(m.ctx, m.skeleton)
 	option.Server.Group("/", func(group *ghttp.RouterGroup) {
 		group.Middleware(service.Middleware().Addon)
+		router.Admin(m.ctx, group)
 		router.Api(m.ctx, group)
 	})
 	return

@@ -27,6 +27,12 @@ type (
 		GetByRoomName(ctx context.Context, room string) (m *entity.Meeting, err error)
 		AssertJoinable(ctx context.Context, m *entity.Meeting) error
 		AutoReleaseExpired(ctx context.Context) (count int, err error)
+		// 管理端：不受主持人/状态限制
+		AdminList(ctx context.Context, in *sysin.AdminMeetingListInp) (list []*sysin.AdminMeetingListModel, totalCount int, err error)
+		AdminView(ctx context.Context, in *sysin.AdminMeetingViewInp) (res *sysin.AdminMeetingViewModel, err error)
+		AdminEdit(ctx context.Context, in *sysin.AdminMeetingEditInp) (err error)
+		AdminDelete(ctx context.Context, in *sysin.AdminMeetingDeleteInp) (err error)
+		AdminRelease(ctx context.Context, in *sysin.AdminMeetingReleaseInp) (err error)
 	}
 	ISysAuth interface {
 		Captcha(ctx context.Context) (res *sysin.AuthCaptchaModel, err error)

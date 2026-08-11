@@ -1,5 +1,14 @@
 package consts
 
+import (
+	"hotgo/internal/library/dict"
+	"hotgo/internal/model"
+)
+
+func init() {
+	dict.RegisterEnums("MeetingStatusOptions", "会议状态选项", MeetingStatusOptions)
+}
+
 const (
 	// DefaultTokenTTL 默认 Token 有效期（秒）
 	DefaultTokenTTL = 900
@@ -46,3 +55,10 @@ const (
 	// MeetingListTabEnded 历史（已结束）
 	MeetingListTabEnded = "ended"
 )
+
+// MeetingStatusOptions 会议状态选项（管理端展示用有效状态）
+var MeetingStatusOptions = []*model.Option{
+	dict.GenInfoOption(MeetingStatusScheduled, "预定"),
+	dict.GenSuccessOption(MeetingStatusOngoing, "进行中"),
+	dict.GenDefaultOption(MeetingStatusEnded, "已结束"),
+}
