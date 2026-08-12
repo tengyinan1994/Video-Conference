@@ -17,6 +17,7 @@ import (
 	iservice "hotgo/internal/service"
 
 	"github.com/gogf/gf/v2/database/gdb"
+	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gtime"
@@ -186,6 +187,9 @@ func (s *sSysMeeting) Delete(ctx context.Context, in *sysin.MeetingDeleteInp) (e
 	}
 	if m.HostId != user.Id && !iservice.AdminMember().VerifySuperId(ctx, user.Id) {
 		return gerror.New("仅主持人可删除会议室")
+	}
+	if isEndedStatus(m.Status) || isPastAutoRelease(m) {
+		return gerror.New("已结束的会议请在管理后台删除")
 	}
 
 	if _, err = meetingModel(ctx).Where("id", m.Id).Delete(); err != nil {
@@ -379,7 +383,67 @@ func toMeetingItem(m *entity.Meeting, userId int64) *sysin.MeetingItemModel {
 		ShareUrl:  "/join/" + m.ShareCode,
 		IsHost:    userId > 0 && m.HostId == userId,
 		Tab:       tab,
+		Attendees: attendeesFromJSON(m.Attendees),
 	}
+}
+
+func attendeesFromJSON(j *gjson.Json) []string {
+	if j == nil || j.IsNil() {
+		return []string{}
+	}
+	var names []string
+	if err := j.Scan(&names); err != nil || names == nil {
+		return []string{}
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// AppendAttendee 进房时把显示名去重追加到会议 attendees
+func (s *sSysMeeting) AppendAttendee(ctx context.Context, roomName, displayName string) (err error) {
+	roomName = strings.TrimSpace(roomName)
+	displayName = strings.TrimSpace(displayName)
+	if roomName == "" || displayName == "" {
+		return nil
+	}
+
+	return g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
+		var m *entity.Meeting
+		if err := tx.Model(consts.MeetingTable).Ctx(ctx).
+			Where("room_name", roomName).
+			LockUpdate().
+			Scan(&m); err != nil {
+			return gerror.Wrap(err, "查询会议室失败")
+		}
+		if m == nil {
+			return nil
+		}
+
+		names := attendeesFromJSON(m.Attendees)
+		for _, n := range names {
+			if n == displayName {
+				return nil
+			}
+		}
+		names = append(names, displayName)
+
+		payload := gjson.New(names)
+		if _, err := tx.Model(consts.MeetingTable).Ctx(ctx).
+			Where("id", m.Id).
+			Data(g.Map{
+				"attendees":  payload,
+				"updated_at": gtime.Now(),
+			}).Update(); err != nil {
+			return gerror.Wrap(err, "更新参会名单失败")
+		}
+		return nil
+	})
 }
 
 func isPastAutoRelease(m *entity.Meeting) bool {
@@ -626,5 +690,6 @@ func toAdminMeetingItem(m *entity.Meeting) *sysin.AdminMeetingListModel {
 		CreatedAt:  m.CreatedAt,
 		UpdatedAt:  m.UpdatedAt,
 		ReleasedAt: m.ReleasedAt,
+		Attendees:  item.Attendees,
 	}
 }

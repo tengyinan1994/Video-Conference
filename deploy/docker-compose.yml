@@ -26,6 +26,9 @@ services:
       - vc_mysql_data:/var/lib/mysql
       - ../server/backend/storage/data/hotgo.sql:/docker-entrypoint-initdb.d/01-hotgo.sql:ro
       - ./init/02-conference-addon.sql:/docker-entrypoint-initdb.d/02-conference-addon.sql:ro
+      - ./init/03-conference-meeting.sql:/docker-entrypoint-initdb.d/03-conference-meeting.sql:ro
+      - ./init/04-conference-menu.sql:/docker-entrypoint-initdb.d/04-conference-menu.sql:ro
+      - ./init/05-conference-meeting-attendees.sql:/docker-entrypoint-initdb.d/05-conference-meeting-attendees.sql:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -63,6 +66,10 @@ services:
           use_external_ip: false
         keys:
           ${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secretsecretsecretsecretsecret12}
+        webhook:
+          api_key: ${LIVEKIT_API_KEY:-devkey}
+          urls:
+            - http://hotgo:8000/api/conference/webhook/livekit
         logging:
           level: info
     command:

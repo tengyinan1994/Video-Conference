@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS `hg_addon_conference_meeting` (
   `created_at` datetime DEFAULT NULL COMMENT '创建时间',
   `updated_at` datetime DEFAULT NULL COMMENT '更新时间',
   `released_at` datetime DEFAULT NULL COMMENT '结束时间（手动或自动）',
+  `attendees` json DEFAULT NULL COMMENT '参会显示名去重列表，如 ["张三","李四"]',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_room_name` (`room_name`),
   UNIQUE KEY `uk_share_code` (`share_code`),

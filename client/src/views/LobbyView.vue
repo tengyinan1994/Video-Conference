@@ -141,6 +141,17 @@ function clearInviteTarget() {
   inviteTarget.value = null
 }
 
+function attendeesOf(m: MeetingItem) {
+  return (m.attendees ?? []).filter((n) => !!n?.trim())
+}
+
+function attendeesPreview(m: MeetingItem) {
+  const list = attendeesOf(m)
+  if (!list.length) return '暂无'
+  if (list.length <= 6) return list.join('、')
+  return `${list.slice(0, 6).join('、')} 等 ${list.length} 人`
+}
+
 function buildInviteText(m: MeetingItem, kind: InviteKind) {
   const how =
     kind === 'guest'
@@ -174,6 +185,16 @@ function canEnter(m: MeetingItem) {
   if (!m.startAt) return true
   // 可提前 5 分钟进入
   return !dayjs(m.startAt).subtract(5, 'minute').isAfter(dayjs())
+}
+
+/** 主持人：已可进入（含提前 5 分钟）即可结束，不必等状态变成「进行中」 */
+function canEnd(m: MeetingItem) {
+  return m.isHost && !isEnded(m) && canEnter(m)
+}
+
+/** 主持人：仅未开始（未到可进窗口）的预定会议可删；已结束只能在管理端删 */
+function canDelete(m: MeetingItem) {
+  return m.isHost && !isEnded(m) && !canEnter(m)
 }
 
 async function enterMeeting(m: MeetingItem) {
@@ -349,10 +370,36 @@ async function onLogout() {
   await router.replace({ name: 'login' })
 }
 
-function formatRange(m: MeetingItem) {
-  const s = m.startAt ? dayjs(m.startAt).format('MM-DD HH:mm') : '-'
-  const e = m.endAt ? dayjs(m.endAt).format('HH:mm') : '-'
-  return `${s} — ${e}`
+function formatDurationMinutes(mins: number) {
+  if (mins <= 0) return '不足 1 分钟'
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60)
+    const rem = mins % 60
+    return rem ? `${h} 小时 ${rem} 分钟` : `${h} 小时`
+  }
+  return `${mins} 分钟`
+}
+
+/** 2026 年 8 月 12 日：数字与单位留空隙，月份不补零 */
+function formatCnDate(d: dayjs.Dayjs) {
+  return `${d.year()} 年 ${d.month() + 1} 月 ${d.date()} 日`
+}
+
+function formatMeetingSchedule(m: MeetingItem) {
+  if (!m.startAt) {
+    return { date: '-', range: '-', duration: '' }
+  }
+  const start = dayjs(m.startAt)
+  const end = m.endAt ? dayjs(m.endAt) : null
+  const date = formatCnDate(start)
+  let range = start.format('HH:mm')
+  if (end) {
+    range = end.isSame(start, 'day')
+      ? `${start.format('HH:mm')} – ${end.format('HH:mm')}`
+      : `${start.format('HH:mm')} – ${formatCnDate(end)} ${end.format('HH:mm')}`
+  }
+  const duration = end ? formatDurationMinutes(end.diff(start, 'minute')) : ''
+  return { date, range, duration }
 }
 
 function formatInviteTime(m: MeetingItem) {
@@ -362,19 +409,9 @@ function formatInviteTime(m: MeetingItem) {
   const start = dayjs(m.startAt)
   const end = m.endAt ? dayjs(m.endAt) : null
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
-  const date = `${start.format('YYYY年M月D日')} 周${weekdays[start.day()]}`
+  const date = `${formatCnDate(start)} 周${weekdays[start.day()]}`
   const range = end ? `${start.format('HH:mm')} – ${end.format('HH:mm')}` : start.format('HH:mm')
-  let duration = ''
-  if (end) {
-    const mins = Math.max(0, end.diff(start, 'minute'))
-    if (mins >= 60) {
-      const h = Math.floor(mins / 60)
-      const rem = mins % 60
-      duration = rem ? `${h} 小时 ${rem} 分钟` : `${h} 小时`
-    } else if (mins > 0) {
-      duration = `${mins} 分钟`
-    }
-  }
+  const duration = end ? formatDurationMinutes(end.diff(start, 'minute')) : ''
   return { date, range, duration }
 }
 
@@ -552,11 +589,6 @@ onUnmounted(() => {
           >
             <div class="card-main">
               <div class="card-top">
-                <span
-                  class="status-dot"
-                  :class="isOngoing(m) ? 'on' : isEnded(m) ? 'ended' : 'off'"
-                  aria-hidden="true"
-                />
                 <h3 class="meeting-title">{{ m.title }}</h3>
                 <button
                   v-if="canEdit(m)"
@@ -582,9 +614,24 @@ onUnmounted(() => {
                   <span class="meta-label">主持人</span>
                   {{ m.hostName }}
                 </span>
-                <span class="meta-item">
-                  <ClockCircleOutlined />
-                  <span class="tabular">{{ formatRange(m) }}</span>
+                <template v-for="sch in [formatMeetingSchedule(m)]" :key="'sch-' + m.id">
+                  <span class="meta-item meta-schedule">
+                    <span class="meta-label">会议时间</span>
+                    <span class="tabular schedule-text">
+                      <span class="schedule-date">{{ sch.date }}</span>
+                      <span class="schedule-range">{{ sch.range }}</span>
+                    </span>
+                  </span>
+                  <span v-if="sch.duration" class="meta-item">
+                    <span class="meta-label">会议时长</span>
+                    <span class="tabular">{{ sch.duration }}</span>
+                  </span>
+                </template>
+              </div>
+              <div v-if="isEnded(m)" class="card-meta card-meta-attendees">
+                <span class="meta-item meta-attendees">
+                  <span class="meta-label">参会人员</span>
+                  {{ attendeesPreview(m) }}
                 </span>
               </div>
 
@@ -617,14 +664,14 @@ onUnmounted(() => {
                 邀请
               </Button>
               <Button
-                v-if="m.isHost && isOngoing(m)"
+                v-if="canEnd(m)"
                 class="btn-danger"
                 @click="onEnd(m)"
               >
                 结束
               </Button>
               <Button
-                v-if="m.isHost && !isOngoing(m)"
+                v-if="canDelete(m)"
                 class="btn-danger"
                 @click="onDelete(m)"
               >
@@ -1177,12 +1224,14 @@ html[data-theme='dark'] .meeting-card {
 }
 
 .meeting-card.live {
-  border-color: rgba(16, 185, 129, 0.28);
-  background: linear-gradient(
-    90deg,
-    rgba(16, 185, 129, 0.08),
-    color-mix(in srgb, var(--card) 92%, transparent) 72px
-  );
+  border-color: rgba(16, 185, 129, 0.22);
+  background: color-mix(in srgb, var(--card) 90%, #ecfdf5);
+  box-shadow: 0 1px 2px rgba(16, 185, 129, 0.05);
+}
+html[data-theme='dark'] .meeting-card.live {
+  border-color: rgba(52, 211, 153, 0.28);
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.03) 72%, rgba(16, 185, 129, 0.12));
+  box-shadow: none;
 }
 
 .meeting-card.ended {
@@ -1200,34 +1249,6 @@ html[data-theme='dark'] .meeting-card {
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 10px;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: #94a3b8;
-}
-.status-dot.on {
-  background: var(--live);
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
-  animation: pulse 1.8s ease-out infinite;
-}
-.status-dot.ended {
-  background: #94a3b8;
-}
-
-@keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
-  }
-  70% {
-    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-  }
 }
 
 .meeting-title {
@@ -1273,6 +1294,10 @@ html[data-theme='dark'] .meeting-card {
   color: #047857;
   background: rgba(16, 185, 129, 0.14);
 }
+html[data-theme='dark'] .pill-live {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.2);
+}
 .pill-plan {
   color: #1d4ed8;
   background: rgba(59, 130, 246, 0.12);
@@ -1295,6 +1320,16 @@ html[data-theme='dark'] .meeting-card {
   color: var(--ink-60);
 }
 
+.card-meta-attendees {
+  margin-top: 8px;
+}
+
+.meta-attendees {
+  min-width: 0;
+  align-items: flex-start;
+  line-height: 1.45;
+}
+
 .meta-item {
   display: inline-flex;
   align-items: center;
@@ -1302,6 +1337,18 @@ html[data-theme='dark'] .meeting-card {
 }
 .meta-item.muted {
   color: var(--ink-35);
+}
+
+.schedule-text {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.schedule-date,
+.schedule-range {
+  white-space: nowrap;
 }
 
 .meta-label {

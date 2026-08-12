@@ -71,6 +71,7 @@ type MeetingItemModel struct {
 	ShareUrl  string      `json:"shareUrl" dc:"相对路径 /join/{shareCode}"`
 	IsHost    bool        `json:"isHost" dc:"当前用户是否主持人"`
 	Tab       string      `json:"tab" dc:"ongoing / scheduled / ended"`
+	Attendees []string    `json:"attendees" dc:"参会显示名去重列表"`
 }
 
 // MeetingReleaseInp 结束会议室（保留记录，计入历史）
@@ -196,6 +197,7 @@ type AdminMeetingListModel struct {
 	CreatedAt  *gtime.Time `json:"createdAt" dc:"创建时间"`
 	UpdatedAt  *gtime.Time `json:"updatedAt" dc:"更新时间"`
 	ReleasedAt *gtime.Time `json:"releasedAt" dc:"结束时间点"`
+	Attendees  []string    `json:"attendees" dc:"参会显示名去重列表"`
 }
 
 // AdminMeetingViewInp 管理端会议详情

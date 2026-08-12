@@ -28,6 +28,7 @@ export interface MeetingItem {
   shareUrl: string
   isHost: boolean
   tab: string
+  attendees?: string[]
 }
 
 export interface MeetingShareView {

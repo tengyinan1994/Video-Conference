@@ -1,6 +1,9 @@
 package entity
 
-import "github.com/gogf/gf/v2/os/gtime"
+import (
+	"github.com/gogf/gf/v2/encoding/gjson"
+	"github.com/gogf/gf/v2/os/gtime"
+)
 
 // Meeting 业务会议室
 type Meeting struct {
@@ -17,4 +20,5 @@ type Meeting struct {
 	CreatedAt  *gtime.Time `json:"createdAt"  orm:"created_at"`
 	UpdatedAt  *gtime.Time `json:"updatedAt"  orm:"updated_at"`
 	ReleasedAt *gtime.Time `json:"releasedAt" orm:"released_at"`
+	Attendees  *gjson.Json `json:"attendees"  orm:"attendees"`
 }

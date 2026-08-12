@@ -18,6 +18,7 @@ import (
 	"hotgo/internal/model"
 
 	"github.com/gogf/gf/v2/errors/gerror"
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/livekit/protocol/auth"
 )
@@ -121,6 +122,11 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 	jwtToken, err := at.ToJWT()
 	if err != nil {
 		return nil, gerror.Wrap(err, "签发会议 Token 失败")
+	}
+
+	// 进房必经 Token；不依赖 LiveKit webhook（本机 --dev 常无 webhook）
+	if err = service.SysMeeting().AppendAttendee(ctx, meeting.RoomName, in.Nickname); err != nil {
+		g.Log().Warningf(ctx, "append attendee on token create failed room=%s nick=%s err=%+v", meeting.RoomName, in.Nickname, err)
 	}
 
 	res = &sysin.TokenCreateModel{

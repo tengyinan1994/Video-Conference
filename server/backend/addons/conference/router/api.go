@@ -16,6 +16,9 @@ import (
 func Api(ctx context.Context, group *ghttp.RouterGroup) {
 	prefix := addons.RouterPrefix(ctx, consts.AppApi, global.GetSkeleton().Name)
 	group.Group(prefix, func(group *ghttp.RouterGroup) {
+		// LiveKit webhook 需原始 Body 验签，不用 Bind
+		group.POST("/webhook/livekit", api.HandleLiveKitWebhook)
+
 		group.Bind(
 			api.AuthPublic,
 			api.MeetingPublic,

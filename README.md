@@ -17,11 +17,15 @@
 
 1. MySQL / Redis：已用 `/Users/chaoming/Middleware/docker-compose.yml`，或本仓库 `deploy/docker-compose.yml` 只起中间件
 2. 独立库：`video_conference`（不要用其他项目的 `hotgo` 库）
-3. LiveKit：`docker compose -f deploy/docker-compose.yml --env-file deploy/.env up livekit`
+3. LiveKit：推荐 `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up livekit`（已含 webhook）
+   - 若用 brew：`livekit-server --config deploy/livekit.yaml` 或 `--dev` 均可；**参会名单在签发 Token 时写入**，不依赖 webhook
 4. HotGo：`cd server/backend && air`
 5. 客户端：`cd client && pnpm dev` → <http://127.0.0.1:5173>
+6. 已有库补字段：执行 `deploy/init/05-conference-meeting-attendees.sql`
 
-Token API：`POST /api/conference/token/create`，body：`{"room":"demo","nickname":"张三"}`
+Token API：`POST /api/conference/token/create`，body：`{"room":"demo","nickname":"张三"}`（成功签发后会把昵称写入会议 `attendees`）
+
+Webhook（可选增强）：`POST /api/conference/webhook/livekit`（与 Token 路径去重追加同一字段）
 
 ## Docker 部署
 
