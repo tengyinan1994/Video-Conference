@@ -212,7 +212,10 @@ export const renderPopoverMemberSumma = (member: MemberSumma | null | undefined)
             h('tbody', [
               h('tr', { align: 'center' }, [
                 h('td', member.id),
-                h('td', h(NAvatar, { src: resolveAvatar(member.avatar), round: true, size: 'small' })),
+                h(
+                  'td',
+                  h(NAvatar, { src: resolveAvatar(member.avatar), round: true, size: 'small' })
+                ),
                 h('td', member.realName),
                 h('td', member.username),
               ]),
