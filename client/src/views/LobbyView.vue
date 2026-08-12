@@ -16,6 +16,7 @@ import {
   CopyOutlined,
   EditOutlined,
   HistoryOutlined,
+  InfoCircleOutlined,
   LogoutOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -37,7 +38,7 @@ import {
 import { clearAuth, displayName, getAuth, setAuth, subscribeAuth } from '@/stores/auth'
 import { ApiError } from '@/utils/request'
 
-type FilterKey = 'all' | 'ongoing' | 'host'
+type FilterKey = 'all' | 'ongoing' | 'host' | 'joined'
 
 const router = useRouter()
 const loading = ref(false)
@@ -82,11 +83,53 @@ const sortedMeetings = computed(() => {
   return list
 })
 
+function myNameCandidates() {
+  const auth = getAuth()
+  return [displayName(), auth?.realName, auth?.username]
+    .map((n) => n?.trim())
+    .filter((n): n is string => !!n)
+}
+
+/** 参会名单里出现过当前用户显示名 / 用户名（进房写 attendees） */
+function didJoin(m: MeetingItem) {
+  const names = attendeesOf(m)
+  if (!names.length) return false
+  const mine = new Set(myNameCandidates())
+  return names.some((n) => mine.has(n))
+}
+
 const filteredMeetings = computed(() => {
   const list = sortedMeetings.value
   if (filter.value === 'ongoing') return list.filter((m) => m.tab === 'ongoing')
   if (filter.value === 'host') return list.filter((m) => m.isHost)
+  if (filter.value === 'joined') return list.filter((m) => didJoin(m))
   return list
+})
+
+const listTitle = computed(() => {
+  switch (filter.value) {
+    case 'ongoing':
+      return '进行中'
+    case 'host':
+      return '我主持'
+    case 'joined':
+      return '我参与'
+    default:
+      return '全部会议'
+  }
+})
+
+const emptyDescription = computed(() => {
+  switch (filter.value) {
+    case 'ongoing':
+      return '当前没有进行中的会议'
+    case 'host':
+      return '还没有你主持的会议'
+    case 'joined':
+      return '还没有你参与过的会议'
+    default:
+      return '还没有会议，创建一个开始协作吧'
+  }
 })
 
 const historyCount = computed(() => meetings.value.filter((m) => m.tab === 'ended').length)
@@ -539,7 +582,7 @@ onUnmounted(() => {
       <section class="list-panel">
         <div class="list-head">
           <div class="list-title">
-            <h2>全部会议</h2>
+            <h2>{{ listTitle }}</h2>
             <span class="badge">{{ filteredMeetings.length }}</span>
           </div>
           <div class="filters" role="tablist">
@@ -567,12 +610,25 @@ onUnmounted(() => {
             >
               我主持
             </button>
+            <button
+              type="button"
+              class="chip"
+              :class="{ active: filter === 'joined' }"
+              @click="filter = 'joined'"
+            >
+              我参与
+            </button>
           </div>
         </div>
 
         <div v-if="!loading && !filteredMeetings.length" class="empty-wrap">
-          <Empty description="还没有会议，创建一个开始协作吧">
-            <Button type="primary" class="btn-primary" @click="createOpen = true">
+          <Empty :description="emptyDescription">
+            <Button
+              v-if="filter === 'all'"
+              type="primary"
+              class="btn-primary"
+              @click="createOpen = true"
+            >
               <template #icon><PlusOutlined /></template>
               新建会议室
             </Button>
@@ -718,9 +774,14 @@ onUnmounted(() => {
             :disabled-date="(d) => !!createForm.startAt && d.isBefore(createForm.startAt, 'day')"
           />
         </Form.Item>
-        <p class="time-hint">
-          可提前 5 分钟进入会议室；会议可超期进行，时间仅作说明。点击「结束」会自动同步实际结束时间。
-        </p>
+        <div class="time-hint">
+          <InfoCircleOutlined class="time-hint-icon" />
+          <ul class="time-hint-list">
+            <li>可提前 5 分钟进入；时间仅作说明，可超期进行</li>
+            <li>结束后主持人可点「结束」，或约 2 小时后自动结束</li>
+            <li>结束时会自动同步实际结束时间</li>
+          </ul>
+        </div>
       </Form>
     </Modal>
 
@@ -761,9 +822,14 @@ onUnmounted(() => {
             :disabled-date="(d) => !!editForm.startAt && d.isBefore(editForm.startAt, 'day')"
           />
         </Form.Item>
-        <p class="time-hint">
-          可提前 5 分钟进入会议室；会议可超期进行，时间仅作说明。点击「结束」会自动同步实际结束时间。
-        </p>
+        <div class="time-hint">
+          <InfoCircleOutlined class="time-hint-icon" />
+          <ul class="time-hint-list">
+            <li>可提前 5 分钟进入；时间仅作说明，可超期进行</li>
+            <li>结束后主持人可点「结束」，或约 2 小时后自动结束</li>
+            <li>结束时会自动同步实际结束时间</li>
+          </ul>
+        </div>
       </Form>
     </Modal>
 
@@ -1048,6 +1114,16 @@ html[data-theme='dark'] .btn-invite:hover {
 .btn-danger:hover {
   background: rgba(239, 68, 68, 0.14) !important;
 }
+html[data-theme='dark'] .btn-danger {
+  border-color: rgba(248, 113, 113, 0.45) !important;
+  background: rgba(239, 68, 68, 0.18) !important;
+  color: #fca5a5 !important;
+}
+html[data-theme='dark'] .btn-danger:hover {
+  border-color: rgba(252, 165, 165, 0.65) !important;
+  background: rgba(239, 68, 68, 0.28) !important;
+  color: #fecaca !important;
+}
 
 .btn-disabled {
   opacity: 0.55 !important;
@@ -1302,13 +1378,25 @@ html[data-theme='dark'] .pill-live {
   color: #1d4ed8;
   background: rgba(59, 130, 246, 0.12);
 }
+html[data-theme='dark'] .pill-plan {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.28);
+}
 .pill-ended {
   color: #64748b;
   background: rgba(148, 163, 184, 0.18);
 }
+html[data-theme='dark'] .pill-ended {
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.22);
+}
 .pill-host {
   color: #b45309;
   background: rgba(245, 158, 11, 0.16);
+}
+html[data-theme='dark'] .pill-host {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.22);
 }
 
 .card-meta {
@@ -1417,11 +1505,50 @@ html[data-theme='dark'] .progress-track {
 }
 
 .time-hint {
-  margin: -4px 0 0;
-  padding: 0 1px;
-  color: rgba(15, 23, 42, 0.4);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(243, 160, 76, 0.28);
+  background: rgba(243, 160, 76, 0.1);
+  color: rgba(15, 23, 42, 0.62);
   font-size: 12px;
   line-height: 1.55;
+}
+html[data-theme='dark'] .time-hint {
+  border-color: rgba(243, 160, 76, 0.32);
+  background: rgba(243, 160, 76, 0.12);
+  color: rgba(226, 232, 240, 0.72);
+}
+.time-hint-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
+  color: #e8892a;
+  font-size: 14px;
+}
+.time-hint-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.time-hint-list li {
+  position: relative;
+  padding-left: 12px;
+}
+.time-hint-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #f3a04c;
 }
 
 .invite-panel {
