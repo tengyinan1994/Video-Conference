@@ -77,17 +77,18 @@ func (s *sSysMeeting) Create(ctx context.Context, in *sysin.MeetingCreateInp) (r
 	}
 
 	data := g.Map{
-		"title":      in.Title,
-		"room_name":  roomName,
-		"host_id":    hostId,
-		"host_name":  hostName,
-		"start_at":   in.StartAt,
-		"end_at":     in.EndAt,
-		"status":     status,
-		"share_code": shareCode,
-		"created_by": user.Id,
-		"created_at": now,
-		"updated_at": now,
+		"title":          in.Title,
+		"room_name":      roomName,
+		"host_id":        hostId,
+		"host_name":      hostName,
+		"start_at":       in.StartAt,
+		"end_at":         in.EndAt,
+		"status":         status,
+		"share_code":     shareCode,
+		"created_by":     user.Id,
+		"created_at":     now,
+		"updated_at":     now,
+		"record_enabled": boolToTiny(in.RecordEnabled),
 	}
 	id, err := meetingModel(ctx).Data(data).InsertAndGetId()
 	if err != nil {
@@ -141,6 +142,7 @@ func (s *sSysMeeting) List(ctx context.Context, in *sysin.MeetingListInp) (list 
 		item := toMeetingItem(m, userId)
 		list = append(list, item)
 	}
+	attachMeetingRecordings(ctx, list)
 	return
 }
 
@@ -195,6 +197,7 @@ func (s *sSysMeeting) Delete(ctx context.Context, in *sysin.MeetingDeleteInp) (e
 	if _, err = meetingModel(ctx).Where("id", m.Id).Delete(); err != nil {
 		return gerror.Wrap(err, "删除会议室失败")
 	}
+	service.SysRecording().StopAllForMeeting(ctx, m.Id, m.RoomName)
 	s.cleanupLiveKitRoom(ctx, m.RoomName)
 	return nil
 }
@@ -225,18 +228,25 @@ func (s *sSysMeeting) Update(ctx context.Context, in *sysin.MeetingUpdateInp) (r
 	}
 
 	now := gtime.Now()
-	if _, err = meetingModel(ctx).Where("id", m.Id).Data(g.Map{
+	data := g.Map{
 		"title":      in.Title,
 		"start_at":   in.StartAt,
 		"end_at":     in.EndAt,
 		"updated_at": now,
-	}).Update(); err != nil {
+	}
+	if in.RecordEnabled != nil {
+		data["record_enabled"] = boolToTiny(*in.RecordEnabled)
+	}
+	if _, err = meetingModel(ctx).Where("id", m.Id).Data(data).Update(); err != nil {
 		return nil, gerror.Wrap(err, "更新会议室失败")
 	}
 	m.Title = in.Title
 	m.StartAt = in.StartAt
 	m.EndAt = in.EndAt
 	m.UpdatedAt = now
+	if in.RecordEnabled != nil {
+		m.RecordEnabled = boolToTiny(*in.RecordEnabled)
+	}
 	res = toMeetingItem(m, user.Id)
 	return
 }
@@ -336,6 +346,7 @@ func (s *sSysMeeting) endMeeting(ctx context.Context, m *entity.Meeting, syncEnd
 	if err != nil {
 		return gerror.Wrap(err, "更新会议室状态失败")
 	}
+	service.SysRecording().StopAllForMeeting(ctx, m.Id, m.RoomName)
 	s.cleanupLiveKitRoom(ctx, m.RoomName)
 	return nil
 }
@@ -371,20 +382,28 @@ func toMeetingItem(m *entity.Meeting, userId int64) *sysin.MeetingItemModel {
 	}
 
 	return &sysin.MeetingItemModel{
-		Id:        m.Id,
-		Title:     m.Title,
-		RoomName:  m.RoomName,
-		HostId:    m.HostId,
-		HostName:  m.HostName,
-		StartAt:   m.StartAt,
-		EndAt:     m.EndAt,
-		Status:    status,
-		ShareCode: m.ShareCode,
-		ShareUrl:  "/join/" + m.ShareCode,
-		IsHost:    userId > 0 && m.HostId == userId,
-		Tab:       tab,
-		Attendees: attendeesFromJSON(m.Attendees),
+		Id:            m.Id,
+		Title:         m.Title,
+		RoomName:      m.RoomName,
+		HostId:        m.HostId,
+		HostName:      m.HostName,
+		StartAt:       m.StartAt,
+		EndAt:         m.EndAt,
+		Status:        status,
+		ShareCode:     m.ShareCode,
+		ShareUrl:      "/join/" + m.ShareCode,
+		IsHost:        userId > 0 && m.HostId == userId,
+		Tab:           tab,
+		Attendees:     attendeesFromJSON(m.Attendees),
+		RecordEnabled: m.RecordEnabled != 0,
 	}
+}
+
+func boolToTiny(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func attendeesFromJSON(j *gjson.Json) []string {
@@ -398,9 +417,10 @@ func attendeesFromJSON(j *gjson.Json) []string {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
 		n = strings.TrimSpace(n)
-		if n != "" {
-			out = append(out, n)
+		if n == "" || isEgressIdentity(n) {
+			continue
 		}
+		out = append(out, n)
 	}
 	return out
 }
@@ -410,6 +430,9 @@ func (s *sSysMeeting) AppendAttendee(ctx context.Context, roomName, displayName 
 	roomName = strings.TrimSpace(roomName)
 	displayName = strings.TrimSpace(displayName)
 	if roomName == "" || displayName == "" {
+		return nil
+	}
+	if isEgressIdentity(displayName) {
 		return nil
 	}
 
@@ -531,6 +554,7 @@ func (s *sSysMeeting) AdminList(ctx context.Context, in *sysin.AdminMeetingListI
 		}
 		list = append(list, toAdminMeetingItem(m))
 	}
+	attachAdminMeetingRecordings(ctx, list)
 	return
 }
 
@@ -546,6 +570,7 @@ func (s *sSysMeeting) AdminView(ctx context.Context, in *sysin.AdminMeetingViewI
 		return nil, gerror.New("会议不存在")
 	}
 	res = &sysin.AdminMeetingViewModel{AdminMeetingListModel: toAdminMeetingItem(m)}
+	attachAdminMeetingRecordings(ctx, []*sysin.AdminMeetingListModel{res.AdminMeetingListModel})
 	return
 }
 
@@ -569,10 +594,11 @@ func (s *sSysMeeting) AdminEdit(ctx context.Context, in *sysin.AdminMeetingEditI
 			return gerror.New("会议不存在")
 		}
 		data := g.Map{
-			"title":      in.Title,
-			"start_at":   in.StartAt,
-			"end_at":     in.EndAt,
-			"updated_at": now,
+			"title":          in.Title,
+			"start_at":       in.StartAt,
+			"end_at":         in.EndAt,
+			"updated_at":     now,
+			"record_enabled": boolToTiny(in.RecordEnabled),
 		}
 		if in.HostId > 0 {
 			data["host_id"] = in.HostId
@@ -612,17 +638,18 @@ func (s *sSysMeeting) AdminEdit(ctx context.Context, in *sysin.AdminMeetingEditI
 		return err
 	}
 	_, err = meetingModel(ctx).Data(g.Map{
-		"title":      in.Title,
-		"room_name":  roomName,
-		"host_id":    hostId,
-		"host_name":  hostName,
-		"start_at":   in.StartAt,
-		"end_at":     in.EndAt,
-		"status":     status,
-		"share_code": shareCode,
-		"created_by": user.Id,
-		"created_at": now,
-		"updated_at": now,
+		"title":          in.Title,
+		"room_name":      roomName,
+		"host_id":        hostId,
+		"host_name":      hostName,
+		"start_at":       in.StartAt,
+		"end_at":         in.EndAt,
+		"status":         status,
+		"share_code":     shareCode,
+		"created_by":     user.Id,
+		"created_at":     now,
+		"updated_at":     now,
+		"record_enabled": boolToTiny(in.RecordEnabled),
 	}).Insert()
 	if err != nil {
 		return gerror.Wrap(err, "创建会议失败")
@@ -650,6 +677,7 @@ func (s *sSysMeeting) AdminDelete(ctx context.Context, in *sysin.AdminMeetingDel
 		if m == nil {
 			continue
 		}
+		service.SysRecording().StopAllForMeeting(ctx, m.Id, m.RoomName)
 		s.cleanupLiveKitRoom(ctx, m.RoomName)
 	}
 	return nil
@@ -675,21 +703,75 @@ func (s *sSysMeeting) AdminRelease(ctx context.Context, in *sysin.AdminMeetingRe
 func toAdminMeetingItem(m *entity.Meeting) *sysin.AdminMeetingListModel {
 	item := toMeetingItem(m, 0)
 	return &sysin.AdminMeetingListModel{
-		Id:         m.Id,
-		Title:      m.Title,
-		RoomName:   m.RoomName,
-		HostId:     m.HostId,
-		HostName:   m.HostName,
-		StartAt:    m.StartAt,
-		EndAt:      m.EndAt,
-		Status:     item.Status,
-		ShareCode:  m.ShareCode,
-		ShareUrl:   item.ShareUrl,
-		Tab:        item.Tab,
-		CreatedBy:  m.CreatedBy,
-		CreatedAt:  m.CreatedAt,
-		UpdatedAt:  m.UpdatedAt,
-		ReleasedAt: m.ReleasedAt,
-		Attendees:  item.Attendees,
+		Id:            m.Id,
+		Title:         m.Title,
+		RoomName:      m.RoomName,
+		HostId:        m.HostId,
+		HostName:      m.HostName,
+		StartAt:       m.StartAt,
+		EndAt:         m.EndAt,
+		Status:        item.Status,
+		ShareCode:     m.ShareCode,
+		ShareUrl:      item.ShareUrl,
+		Tab:           item.Tab,
+		CreatedBy:     m.CreatedBy,
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
+		ReleasedAt:    m.ReleasedAt,
+		Attendees:     item.Attendees,
+		RecordEnabled: item.RecordEnabled,
+		Recordings:    item.Recordings,
+	}
+}
+
+func attachMeetingRecordings(ctx context.Context, list []*sysin.MeetingItemModel) {
+	if len(list) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(list))
+	for _, item := range list {
+		if item != nil && item.Id > 0 {
+			ids = append(ids, item.Id)
+		}
+	}
+	byID, err := service.SysRecording().ListByMeetingIDs(ctx, ids)
+	if err != nil {
+		g.Log().Warningf(ctx, "attach meeting recordings failed: %+v", err)
+		return
+	}
+	for _, item := range list {
+		if item == nil {
+			continue
+		}
+		item.Recordings = byID[item.Id]
+		if item.Recordings == nil {
+			item.Recordings = []*sysin.RecordingSegmentModel{}
+		}
+	}
+}
+
+func attachAdminMeetingRecordings(ctx context.Context, list []*sysin.AdminMeetingListModel) {
+	if len(list) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(list))
+	for _, item := range list {
+		if item != nil && item.Id > 0 {
+			ids = append(ids, item.Id)
+		}
+	}
+	byID, err := service.SysRecording().ListByMeetingIDs(ctx, ids)
+	if err != nil {
+		g.Log().Warningf(ctx, "attach admin meeting recordings failed: %+v", err)
+		return
+	}
+	for _, item := range list {
+		if item == nil {
+			continue
+		}
+		item.Recordings = byID[item.Id]
+		if item.Recordings == nil {
+			item.Recordings = []*sysin.RecordingSegmentModel{}
+		}
 	}
 }

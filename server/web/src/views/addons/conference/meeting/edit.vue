@@ -39,6 +39,12 @@
                   />
                 </n-form-item>
               </n-gi>
+              <n-gi>
+                <n-form-item label="开启录制" path="recordEnabled">
+                  <n-switch v-model:value="formValue.recordEnabled" />
+                  <span class="ml-3 text-gray-500 text-sm">默认关；开则主持人进房自动录</span>
+                </n-form-item>
+              </n-gi>
               <n-gi v-if="formValue.id > 0">
                 <n-form-item label="状态">
                   <n-tag :type="statusTagType" size="small">

@@ -32,8 +32,11 @@ func (s *sMiddleware) ResponseHandler(r *ghttp.Request) {
 	}
 
 	contentType := getContentType(r)
-	// 已存在响应
-	if contentType != consts.HTTPContentTypeStream && r.Response.BufferLength() > 0 { // && contexts.Get(r.Context()).Response != nil
+	// 已存在响应（含已向底层连接写出的 Range 回放）
+	if r.Response.BytesWritten() > 0 || r.Response.IsHeaderWrote() {
+		return
+	}
+	if contentType != consts.HTTPContentTypeStream && r.Response.BufferLength() > 0 {
 		return
 	}
 
@@ -46,6 +49,7 @@ func (s *sMiddleware) ResponseHandler(r *ghttp.Request) {
 		return
 	case consts.HTTPContentTypeStream:
 	case consts.HTTPContentTypeOctetStream:
+	case consts.HTTPContentTypeMP4:
 	default:
 		responseJson(r)
 	}

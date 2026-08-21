@@ -25,6 +25,7 @@ const (
 	HTTPContentTypeStream      = "text/event-stream"
 	HTTPContentTypeJson        = "application/json"
 	HTTPContentTypeOctetStream = "application/octet-stream"
+	HTTPContentTypeMP4         = "video/mp4"
 )
 
 // HTTPMethodOptions HTTP请求方式选项

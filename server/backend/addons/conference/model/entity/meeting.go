@@ -19,6 +19,7 @@ type Meeting struct {
 	CreatedBy  int64       `json:"createdBy"  orm:"created_by"`
 	CreatedAt  *gtime.Time `json:"createdAt"  orm:"created_at"`
 	UpdatedAt  *gtime.Time `json:"updatedAt"  orm:"updated_at"`
-	ReleasedAt *gtime.Time `json:"releasedAt" orm:"released_at"`
-	Attendees  *gjson.Json `json:"attendees"  orm:"attendees"`
+	ReleasedAt    *gtime.Time `json:"releasedAt"    orm:"released_at"`
+	Attendees     *gjson.Json `json:"attendees"     orm:"attendees"`
+	RecordEnabled int         `json:"recordEnabled" orm:"record_enabled"`
 }

@@ -33,6 +33,14 @@ const (
 
 	// MeetingTable 业务会议室表
 	MeetingTable = "hg_addon_conference_meeting"
+	// RecordingTable 录制分段表
+	RecordingTable = "hg_addon_conference_recording"
+
+	RecordingStatusStarting = "starting"
+	RecordingStatusActive   = "active"
+	RecordingStatusStopping = "stopping"
+	RecordingStatusComplete = "complete"
+	RecordingStatusFailed   = "failed"
 
 	// MeetingStatusScheduled 预定
 	MeetingStatusScheduled = "scheduled"

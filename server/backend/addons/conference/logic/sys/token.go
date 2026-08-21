@@ -129,15 +129,27 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 		g.Log().Warningf(ctx, "append attendee on token create failed room=%s nick=%s err=%+v", meeting.RoomName, in.Nickname, err)
 	}
 
+	if isHost && meeting.RecordEnabled != 0 {
+		uid := int64(0)
+		if user != nil {
+			uid = user.Id
+		}
+		if autoErr := service.SysRecording().TryAutoStart(ctx, meeting, uid); autoErr != nil {
+			g.Log().Warningf(ctx, "conference auto-start recording failed meeting=%d err=%+v", meeting.Id, autoErr)
+		}
+	}
+
 	res = &sysin.TokenCreateModel{
-		ServerUrl: cfg.Url,
-		Room:      meeting.RoomName,
-		Title:     meeting.Title,
-		Identity:  identity,
-		Nickname:  in.Nickname,
-		Token:     jwtToken,
-		ExpiresAt: expiresAt,
-		IsHost:    isHost,
+		ServerUrl:       cfg.Url,
+		Room:            meeting.RoomName,
+		Title:           meeting.Title,
+		Identity:        identity,
+		Nickname:        in.Nickname,
+		Token:           jwtToken,
+		ExpiresAt:       expiresAt,
+		IsHost:          isHost,
+		RecordEnabled:   meeting.RecordEnabled != 0,
+		RecordingActive: hasActiveRecording(ctx, meeting.Id),
 	}
 	return
 }

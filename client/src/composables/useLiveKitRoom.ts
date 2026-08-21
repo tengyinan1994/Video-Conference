@@ -34,6 +34,15 @@ export type AttachableTrack = {
   mediaStreamTrack?: MediaStreamTrack
 }
 
+/** LiveKit Egress 会以 EG_xxx 虚拟参与者进房，不在成员列表展示 */
+function isEgressParticipant(p: Participant): boolean {
+  const identity = (p.identity || '').trim()
+  const name = (p.name || '').trim()
+  if (identity.startsWith('EG_') || name.startsWith('EG_')) return true
+  const kind = (p as { kind?: string | number }).kind
+  return kind === 'egress' || kind === 3
+}
+
 function isMediaTrackLive(track: { mediaStreamTrack?: MediaStreamTrack } | undefined | null): boolean {
   if (!track) return false
   const mst = track.mediaStreamTrack
@@ -293,6 +302,7 @@ export function useLiveKitRoom() {
 
     const list: MediaParticipant[] = []
     const push = (p: Participant, isLocal: boolean) => {
+      if (isEgressParticipant(p)) return
       const cam = p.getTrackPublication(Track.Source.Camera)
       const mic = p.getTrackPublication(Track.Source.Microphone)
       const screen = p.getTrackPublication(Track.Source.ScreenShare)

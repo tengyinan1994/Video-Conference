@@ -18,7 +18,7 @@ import (
 
 const livekitEventParticipantJoined = "participant_joined"
 
-// HandleLiveKitWebhook LiveKit 进房 webhook：去重追加参会昵称
+// HandleLiveKitWebhook LiveKit webhook：参会名单 + Egress 录制状态
 func HandleLiveKitWebhook(r *ghttp.Request) {
 	ctx := r.Context()
 
@@ -42,33 +42,52 @@ func HandleLiveKitWebhook(r *ghttp.Request) {
 		return
 	}
 
-	if event.GetEvent() != livekitEventParticipantJoined {
-		r.Response.WriteStatus(200)
-		return
-	}
-
-	room := ""
-	if event.GetRoom() != nil {
-		room = strings.TrimSpace(event.GetRoom().GetName())
-	}
-	displayName := ""
-	if p := event.GetParticipant(); p != nil {
-		displayName = strings.TrimSpace(p.GetName())
-		if displayName == "" {
-			displayName = strings.TrimSpace(p.GetIdentity())
+	ev := event.GetEvent()
+	switch ev {
+	case webhook.EventEgressStarted, webhook.EventEgressUpdated, webhook.EventEgressEnded:
+		if info := event.GetEgressInfo(); info != nil {
+			service.SysRecording().HandleEgressWebhook(ctx, info)
 		}
-	}
-	if room == "" || displayName == "" {
+		r.Response.WriteStatus(200)
+		return
+	case livekitEventParticipantJoined:
+		room := ""
+		if event.GetRoom() != nil {
+			room = strings.TrimSpace(event.GetRoom().GetName())
+		}
+		displayName := ""
+		identity := ""
+		if p := event.GetParticipant(); p != nil {
+			identity = strings.TrimSpace(p.GetIdentity())
+			displayName = strings.TrimSpace(p.GetName())
+			if displayName == "" {
+				displayName = identity
+			}
+		}
+		if identity != "" && strings.HasPrefix(identity, "EG_") {
+			r.Response.WriteStatus(200)
+			return
+		}
+		if displayName != "" && strings.HasPrefix(displayName, "EG_") {
+			r.Response.WriteStatus(200)
+			return
+		}
+		if room == "" || displayName == "" {
+			r.Response.WriteStatus(200)
+			return
+		}
+
+		if err = service.SysMeeting().AppendAttendee(ctx, room, displayName); err != nil {
+			g.Log().Warningf(ctx, "conference webhook: append attendee failed room=%s name=%s err=%+v", room, displayName, err)
+			r.Response.WriteStatus(500)
+			return
+		}
+		r.Response.WriteStatus(200)
+		return
+	default:
 		r.Response.WriteStatus(200)
 		return
 	}
-
-	if err = service.SysMeeting().AppendAttendee(ctx, room, displayName); err != nil {
-		g.Log().Warningf(ctx, "conference webhook: append attendee failed room=%s name=%s err=%+v", room, displayName, err)
-		r.Response.WriteStatus(500)
-		return
-	}
-	r.Response.WriteStatus(200)
 }
 
 func loadWebhookLiveKitConfig(ctx context.Context) (cfg *model.LiveKitConfig, err error) {

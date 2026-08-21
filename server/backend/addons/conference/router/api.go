@@ -22,15 +22,19 @@ func Api(ctx context.Context, group *ghttp.RouterGroup) {
 		group.Bind(
 			api.AuthPublic,
 			api.MeetingPublic,
+			api.RecordingPublic,
 			api.Token,
 			api.Room,
 		)
 
 		group.Group("/", func(group *ghttp.RouterGroup) {
 			group.Middleware(service.Middleware().ApiAuth)
+			group.GET("/recording/download", api.HandleRecordingDownload)
+			group.GET("/recording/play", api.HandleRecordingPlay)
 			group.Bind(
 				api.Auth,
 				api.Meeting,
+				api.Recording,
 			)
 		})
 	})

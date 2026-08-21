@@ -8,6 +8,7 @@ import {
   Form,
   Input,
   Modal,
+  Switch,
   message,
 } from 'ant-design-vue'
 import {
@@ -33,7 +34,11 @@ import {
   endMeeting,
   listMeetings,
   updateMeeting,
+  downloadRecordingFile,
+  recordingPlaySrc,
+  recordingStatus,
   type MeetingItem,
+  type RecordingSegment,
 } from '@/api/conference'
 import { clearAuth, displayName, getAuth, setAuth, subscribeAuth } from '@/stores/auth'
 import { ApiError } from '@/utils/request'
@@ -48,6 +53,10 @@ const renaming = ref(false)
 const editOpen = ref(false)
 const inviteOpen = ref(false)
 const inviteTarget = ref<MeetingItem | null>(null)
+const detailOpen = ref(false)
+const detailMeeting = ref<MeetingItem | null>(null)
+const playSeg = ref<RecordingSegment | null>(null)
+const playError = ref('')
 const meetings = ref<MeetingItem[]>([])
 const userLabel = ref(displayName())
 const filter = ref<FilterKey>('all')
@@ -62,6 +71,7 @@ const createForm = reactive({
   title: '',
   startAt: undefined as Dayjs | undefined,
   endAt: undefined as Dayjs | undefined,
+  recordEnabled: false,
 })
 
 const editForm = reactive({
@@ -185,7 +195,10 @@ function clearInviteTarget() {
 }
 
 function attendeesOf(m: MeetingItem) {
-  return (m.attendees ?? []).filter((n) => !!n?.trim())
+  return (m.attendees ?? []).filter((n) => {
+    const name = n?.trim()
+    return !!name && !name.startsWith('EG_')
+  })
 }
 
 function attendeesPreview(m: MeetingItem) {
@@ -193,6 +206,147 @@ function attendeesPreview(m: MeetingItem) {
   if (!list.length) return '暂无'
   if (list.length <= 6) return list.join('、')
   return `${list.slice(0, 6).join('、')} 等 ${list.length} 人`
+}
+
+function recordingsOf(m: MeetingItem) {
+  return m.recordings ?? []
+}
+
+function canPlaySeg(seg: RecordingSegment) {
+  return seg.status === 'complete' && !!seg.id
+}
+
+function recordingStatusText(seg: RecordingSegment) {
+  switch (seg.status) {
+    case 'complete':
+      return canPlaySeg(seg) ? '' : '文件未就绪'
+    case 'failed':
+      return '失败'
+    case 'starting':
+    case 'active':
+    case 'stopping':
+      return '处理中'
+    default:
+      return seg.status || '未知'
+  }
+}
+
+function isProcessingSeg(seg: RecordingSegment) {
+  return ['starting', 'active', 'stopping'].includes(seg.status)
+}
+
+const playSrc = computed(() => {
+  if (!playSeg.value || !canPlaySeg(playSeg.value)) return ''
+  return recordingPlaySrc(playSeg.value.id)
+})
+
+function openDetail(m: MeetingItem, seg?: RecordingSegment) {
+  detailMeeting.value = m
+  playError.value = ''
+  playSeg.value = seg && canPlaySeg(seg) ? seg : firstPlayableSeg(m)
+  detailOpen.value = true
+  void refreshDetailRecordings()
+  startDetailPoll()
+}
+
+function closeDetail() {
+  // 关动画未结束又点开时，afterClose 会晚到；已重新打开则不要清掉新状态
+  if (detailOpen.value) return
+  stopDetailPoll()
+  detailMeeting.value = null
+  playSeg.value = null
+  playError.value = ''
+}
+
+function firstPlayableSeg(m: MeetingItem) {
+  return recordingsOf(m).find((s) => canPlaySeg(s)) ?? null
+}
+
+function selectPlaySeg(seg: RecordingSegment) {
+  if (!canPlaySeg(seg)) return
+  playError.value = ''
+  playSeg.value = seg
+}
+
+function onPlayError() {
+  playError.value = '无法播放该录制，请稍后重试或改用下载'
+}
+
+let detailPollTimer: ReturnType<typeof setInterval> | null = null
+
+function startDetailPoll() {
+  stopDetailPoll()
+  detailPollTimer = setInterval(() => {
+    const m = detailMeeting.value
+    if (!m) return
+    if (!recordingsOf(m).some(isProcessingSeg)) {
+      stopDetailPoll()
+      return
+    }
+    void refreshDetailRecordings()
+  }, 3000)
+}
+
+function stopDetailPoll() {
+  if (detailPollTimer) {
+    clearInterval(detailPollTimer)
+    detailPollTimer = null
+  }
+}
+
+async function refreshDetailRecordings() {
+  const m = detailMeeting.value
+  if (!m?.id) return
+  try {
+    const res = await recordingStatus({ meetingId: m.id })
+    if (detailMeeting.value?.id !== m.id) return
+    const segments = res.segments ?? []
+    detailMeeting.value = { ...m, recordings: segments }
+    const idx = meetings.value.findIndex((item) => item.id === m.id)
+    if (idx >= 0) {
+      meetings.value[idx] = { ...meetings.value[idx], recordings: segments }
+    }
+    if (playSeg.value) {
+      const latest = segments.find((s) => s.id === playSeg.value?.id)
+      if (latest) playSeg.value = latest
+    } else {
+      playSeg.value = segments.find((s) => canPlaySeg(s)) ?? null
+    }
+  } catch {
+    // 详情刷新失败不打断已打开的播放
+  }
+}
+
+function formatFileSize(n?: number) {
+  if (!n || n <= 0) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function formatSegSpan(seg: RecordingSegment) {
+  if (!seg.startedAt) return ''
+  const start = dayjs(seg.startedAt)
+  if (!seg.endedAt) return start.format('HH:mm')
+  const end = dayjs(seg.endedAt)
+  return `${start.format('HH:mm')} – ${end.format('HH:mm')}`
+}
+
+function recordingDownloadName(m: MeetingItem, seg: RecordingSegment) {
+  const title = (m.title || '会议录制').replace(/[\\/:*?"<>|]/g, '_')
+  return `${title}-第${seg.seq}段.mp4`
+}
+
+async function downloadSeg(m: MeetingItem, seg: RecordingSegment) {
+  if (!seg.id) return
+  const hide = message.loading('正在下载…', 0)
+  try {
+    await downloadRecordingFile(seg.id, recordingDownloadName(m, seg))
+  } catch (err) {
+    message.error(err instanceof ApiError ? err.message : '下载失败')
+  } finally {
+    hide()
+  }
 }
 
 function buildInviteText(m: MeetingItem, kind: InviteKind) {
@@ -267,6 +421,8 @@ async function enterMeeting(m: MeetingItem) {
         enableCamera: false,
         fromShare: false,
         shareCode: m.shareCode,
+        recordEnabled: !!data.recordEnabled,
+        recordingActive: !!data.recordingActive,
       }),
     )
     await router.push({ name: 'room', params: { room: data.room } })
@@ -388,10 +544,12 @@ async function onCreate() {
       hostName: displayName(),
       startAt: createForm.startAt.format('YYYY-MM-DD HH:mm:ss'),
       endAt: createForm.endAt.format('YYYY-MM-DD HH:mm:ss'),
+      recordEnabled: !!createForm.recordEnabled,
     })
     message.success('会议室已创建')
     createOpen.value = false
     createForm.title = ''
+    createForm.recordEnabled = false
     const now = dayjs()
     createForm.startAt = now.add(5, 'minute')
     createForm.endAt = now.add(1, 'hour')
@@ -501,6 +659,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   unsubAuth?.()
+  stopDetailPoll()
 })
 </script>
 
@@ -690,6 +849,21 @@ onUnmounted(() => {
                   {{ attendeesPreview(m) }}
                 </span>
               </div>
+              <div v-if="isEnded(m) && recordingsOf(m).length" class="card-meta card-meta-recordings">
+                <span class="meta-item meta-recordings">
+                  <span class="meta-label">录制</span>
+                  <span class="recording-list">
+                    <span v-for="seg in recordingsOf(m)" :key="seg.id" class="recording-item">
+                      第{{ seg.seq }}段
+                      <template v-if="canPlaySeg(seg)">
+                        <button type="button" class="recording-link" @click="openDetail(m, seg)">回放</button>
+                        <button type="button" class="recording-link" @click="downloadSeg(m, seg)">下载</button>
+                      </template>
+                      <span v-else class="recording-status">{{ recordingStatusText(seg) }}</span>
+                    </span>
+                  </span>
+                </span>
+              </div>
 
               <div v-if="isOngoing(m) && progressInfo(m)" class="progress-block">
                 <div class="progress-track">
@@ -713,7 +887,14 @@ onUnmounted(() => {
               >
                 进入
               </Button>
-              <Button v-else-if="isEnded(m)" class="btn-disabled" disabled>已结束</Button>
+              <Button
+                v-else-if="isEnded(m)"
+                type="primary"
+                class="btn-primary"
+                @click="openDetail(m)"
+              >
+                详情
+              </Button>
               <Button v-else class="btn-disabled" disabled>未到时间</Button>
               <Button v-if="!isEnded(m)" class="btn-invite" @click="openInvite(m)">
                 <template #icon><UserAddOutlined /></template>
@@ -773,6 +954,12 @@ onUnmounted(() => {
             style="width: 100%"
             :disabled-date="(d) => !!createForm.startAt && d.isBefore(createForm.startAt, 'day')"
           />
+        </Form.Item>
+        <Form.Item label="开启录制">
+          <div class="record-switch-row">
+            <Switch v-model:checked="createForm.recordEnabled" />
+            <span class="record-switch-hint">默认关闭；开启后主持人进房自动开始，会中仍可多次启停</span>
+          </div>
         </Form.Item>
         <div class="time-hint">
           <InfoCircleOutlined class="time-hint-icon" />
@@ -876,6 +1063,88 @@ onUnmounted(() => {
               复制同事邀请
             </Button>
             <p class="invite-hint">对方需用账号登录后，通过链接进入会议</p>
+          </div>
+        </div>
+      </div>
+    </Modal>
+
+    <Modal
+      v-model:open="detailOpen"
+      :title="detailMeeting?.title || '会议详情'"
+      :footer="null"
+      width="760px"
+      wrap-class-name="detail-modal"
+      destroy-on-close
+      :afterClose="closeDetail"
+    >
+      <div v-if="detailMeeting" class="detail-panel">
+        <div class="invite-fields">
+          <div class="invite-line">
+            <span class="invite-label">主持人</span>
+            <span class="invite-value">{{ detailMeeting.hostName }}</span>
+          </div>
+          <div class="invite-line">
+            <span class="invite-label">时间</span>
+            <span class="invite-value">{{ formatInviteTimeText(detailMeeting) }}</span>
+          </div>
+          <div class="invite-line">
+            <span class="invite-label">参会人</span>
+            <span class="invite-value">{{ attendeesPreview(detailMeeting) }}</span>
+          </div>
+        </div>
+
+        <div v-if="playSrc" class="detail-player">
+          <video
+            :key="playSeg?.id"
+            class="play-video"
+            :src="playSrc"
+            controls
+            autoplay
+            playsinline
+            preload="metadata"
+            @error="onPlayError"
+          />
+          <p v-if="playError" class="detail-play-error">{{ playError }}</p>
+        </div>
+        <p v-else-if="recordingsOf(detailMeeting).some(isProcessingSeg)" class="detail-play-hint">
+          录制文件处理中，就绪后将自动可播
+        </p>
+        <p v-else-if="!recordingsOf(detailMeeting).length" class="detail-play-hint">
+          这场会议没有录制文件
+        </p>
+
+        <div v-if="recordingsOf(detailMeeting).length" class="detail-segs">
+          <div class="detail-segs-title">录制分段</div>
+          <div
+            v-for="seg in recordingsOf(detailMeeting)"
+            :key="seg.id"
+            class="detail-seg"
+            :class="{ active: playSeg?.id === seg.id }"
+          >
+            <div class="detail-seg-main">
+              <span class="detail-seg-name">第{{ seg.seq }}段</span>
+              <span v-if="formatSegSpan(seg)" class="detail-seg-meta">{{ formatSegSpan(seg) }}</span>
+              <span v-if="formatFileSize(seg.fileSize)" class="detail-seg-meta">{{ formatFileSize(seg.fileSize) }}</span>
+              <span v-if="!canPlaySeg(seg)" class="recording-status">{{ recordingStatusText(seg) }}</span>
+            </div>
+            <div class="detail-seg-actions">
+              <button
+                v-if="canPlaySeg(seg)"
+                type="button"
+                class="recording-link"
+                @click="selectPlaySeg(seg)"
+              >
+                {{ playSeg?.id === seg.id ? '播放中' : '回放' }}
+              </button>
+              <button
+                v-if="canPlaySeg(seg)"
+                type="button"
+                class="recording-link"
+                @click="downloadSeg(detailMeeting, seg)"
+              >
+                下载
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1412,10 +1681,131 @@ html[data-theme='dark'] .pill-host {
   margin-top: 8px;
 }
 
-.meta-attendees {
+.card-meta-recordings {
+  margin-top: 6px;
+}
+
+.meta-attendees,
+.meta-recordings {
   min-width: 0;
   align-items: flex-start;
   line-height: 1.45;
+}
+
+.recording-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.recording-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recording-link {
+  color: var(--brand-strong);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  text-decoration: none;
+}
+
+.recording-link:hover {
+  text-decoration: underline;
+}
+
+.recording-status {
+  color: var(--ink-35);
+}
+
+.play-video {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  background: #000;
+  border-radius: 10px;
+}
+
+.detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.detail-player {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-play-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.detail-play-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-35);
+}
+
+.detail-segs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-segs-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.detail-seg {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+}
+
+.detail-seg.active {
+  border-color: rgba(243, 160, 76, 0.45);
+  background: rgba(243, 160, 76, 0.1);
+}
+
+.detail-seg-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.detail-seg-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.detail-seg-meta {
+  font-size: 12px;
+  color: var(--ink-35);
+}
+
+.detail-seg-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .meta-item {
@@ -1502,6 +1892,19 @@ html[data-theme='dark'] .progress-track {
 
 .create-form {
   margin-top: 8px;
+}
+
+.record-switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.record-switch-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vc-muted, #64748b);
+  flex: 1;
 }
 
 .time-hint {
@@ -1726,29 +2129,34 @@ html[data-theme='dark'] .time-hint {
 </style>
 
 <style>
-.invite-modal .ant-modal-content {
+.invite-modal .ant-modal-content,
+.detail-modal .ant-modal-content {
   overflow: hidden;
   border-radius: 14px;
 }
 
-.invite-modal .ant-modal-header {
+.invite-modal .ant-modal-header,
+.detail-modal .ant-modal-header {
   margin: 0;
   padding: 20px 24px 8px;
   border-bottom: none;
 }
 
-.invite-modal .ant-modal-title {
+.invite-modal .ant-modal-title,
+.detail-modal .ant-modal-title {
   color: rgba(15, 23, 42, 0.92);
   font-size: 17px;
   font-weight: 650;
   line-height: 1.35;
 }
 
-.invite-modal .ant-modal-close {
+.invite-modal .ant-modal-close,
+.detail-modal .ant-modal-close {
   top: 16px;
 }
 
-.invite-modal .ant-modal-body {
+.invite-modal .ant-modal-body,
+.detail-modal .ant-modal-body {
   padding: 4px 24px 22px;
 }
 </style>

@@ -35,6 +35,11 @@ func memberIdFromIdentity(identity string) int64 {
 	return id
 }
 
+// isEgressIdentity LiveKit Egress 进房 identity/显示名形如 EG_xxxx，不是真人参会者
+func isEgressIdentity(identity string) bool {
+	return strings.HasPrefix(strings.TrimSpace(identity), "EG_")
+}
+
 func isMeetingHostIdentity(identity string, hostId int64) bool {
 	if hostId <= 0 || identity == "" {
 		return false

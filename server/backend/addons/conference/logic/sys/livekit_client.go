@@ -34,6 +34,27 @@ func loadLiveKitConfig(ctx context.Context) (cfg *model.LiveKitConfig, err error
 	return
 }
 
+func loadRecordingConfig(ctx context.Context) (cfg *model.RecordingConfig, err error) {
+	cfg = &model.RecordingConfig{
+		Enabled: true,
+		S3: model.RecordingS3{
+			Region:         "us-east-1",
+			ForcePathStyle: true,
+			Bucket:         "recordings",
+		},
+	}
+	v, err := g.Cfg().Get(ctx, "recording")
+	if err != nil {
+		return nil, gerror.Wrap(err, "读取 recording 配置失败")
+	}
+	if v != nil && !v.IsNil() && !v.IsEmpty() {
+		if err = v.Scan(cfg); err != nil {
+			return nil, gerror.Wrap(err, "解析 recording 配置失败")
+		}
+	}
+	return cfg, nil
+}
+
 // httpURLFromLiveKit 将 ws(s):// 转为 RoomService 所需的 http(s)://
 func httpURLFromLiveKit(url string) string {
 	u := strings.TrimSpace(url)
@@ -47,13 +68,33 @@ func httpURLFromLiveKit(url string) string {
 	}
 }
 
+func liveKitAPIBase(cfg *model.LiveKitConfig) string {
+	if strings.TrimSpace(cfg.ApiUrl) != "" {
+		return httpURLFromLiveKit(cfg.ApiUrl)
+	}
+	return httpURLFromLiveKit(cfg.Url)
+}
+
 func newRoomServiceClient(ctx context.Context) (*lksdk.RoomServiceClient, *model.LiveKitConfig, error) {
 	cfg, err := loadLiveKitConfig(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	client := lksdk.NewRoomServiceClient(httpURLFromLiveKit(cfg.Url), cfg.ApiKey, cfg.ApiSecret)
+	client := lksdk.NewRoomServiceClient(liveKitAPIBase(cfg), cfg.ApiKey, cfg.ApiSecret)
 	return client, cfg, nil
+}
+
+func newEgressClient(ctx context.Context) (*lksdk.EgressClient, *model.LiveKitConfig, *model.RecordingConfig, error) {
+	cfg, err := loadLiveKitConfig(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	rec, err := loadRecordingConfig(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	client := lksdk.NewEgressClient(liveKitAPIBase(cfg), cfg.ApiKey, cfg.ApiSecret)
+	return client, cfg, rec, nil
 }
 
 func listRoomParticipants(ctx context.Context, client *lksdk.RoomServiceClient, room string) ([]*livekit.ParticipantInfo, error) {

@@ -25,6 +25,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/kayon/iploc v0.0.0-20200312105652-bda3e968a794
 	github.com/livekit/protocol v1.50.4
+	github.com/livekit/server-sdk-go/v2 v2.12.8
 	github.com/minio/minio-go/v7 v7.0.94
 	github.com/mojocn/base64Captcha v1.3.8
 	github.com/olekukonko/tablewriter v1.1.0
@@ -122,7 +123,6 @@ require (
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731 // indirect
 	github.com/livekit/mediatransportutil v0.0.0-20250825135402-7bc31f107ade // indirect
 	github.com/livekit/psrpc v0.7.2 // indirect
-	github.com/livekit/server-sdk-go/v2 v2.12.8 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magefile/mage v1.15.0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect

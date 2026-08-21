@@ -32,3 +32,18 @@ func TestIsMeetingHostIdentity(t *testing.T) {
 		t.Fatal("legacy identity should still match")
 	}
 }
+
+func TestIsEgressIdentity(t *testing.T) {
+	if !isEgressIdentity("EG_UCERbEd9wAeh") {
+		t.Fatal("expected egress identity")
+	}
+	if !isEgressIdentity("  EG_abc  ") {
+		t.Fatal("expected trimmed egress identity")
+	}
+	if isEgressIdentity("u_1_ab12cd34") {
+		t.Fatal("member identity is not egress")
+	}
+	if isEgressIdentity("") {
+		t.Fatal("empty is not egress")
+	}
+}

@@ -27,11 +27,19 @@ import {
   UserDeleteOutlined,
   VideoCameraAddOutlined,
   VideoCameraOutlined,
+  VideoCameraFilled,
 } from '@ant-design/icons-vue'
 import MediaTrack from '@/components/MediaTrack.vue'
 import QualityBars from '@/components/QualityBars.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
-import { kickParticipant, muteAllParticipants, claimHost } from '@/api/conference'
+import {
+  kickParticipant,
+  muteAllParticipants,
+  claimHost,
+  startRecording,
+  stopRecording,
+  recordingStatus,
+} from '@/api/conference'
 import { ApiError } from '@/utils/request'
 import { isLoggedIn } from '@/stores/auth'
 import { useLiveKitRoom } from '@/composables/useLiveKitRoom'
@@ -49,6 +57,8 @@ interface SessionPayload {
   enableCamera?: boolean
   fromShare?: boolean
   shareCode?: string
+  recordEnabled?: boolean
+  recordingActive?: boolean
 }
 
 const route = useRoute()
@@ -92,6 +102,9 @@ const chatOpen = ref(false)
 const chatDraft = ref('')
 const chatListEl = ref<HTMLElement | null>(null)
 const hostActing = ref(false)
+const recordingActive = ref(false)
+const recordingActing = ref(false)
+let recordingPollTimer: ReturnType<typeof setInterval> | null = null
 
 const statusText = computed(() => {
   switch (status.value) {
@@ -221,6 +234,7 @@ async function enter() {
     return
   }
   session.value = parsed
+  recordingActive.value = !!parsed.recordingActive
   joining.value = true
   try {
     await connect(parsed.serverUrl, parsed.token, {
@@ -229,6 +243,8 @@ async function enter() {
     })
     await refreshDevices()
     await syncHostRole()
+    await refreshRecordingStatus()
+    startRecordingPoll()
   } catch {
     // errorMessage already set
   } finally {
@@ -250,6 +266,7 @@ async function leaveToEntry(payload?: SessionPayload | null) {
 }
 
 async function leave() {
+  stopRecordingPoll()
   await disconnect()
   const s = session.value
   sessionStorage.removeItem('vc.session')
@@ -290,6 +307,54 @@ async function onMuteAll() {
     message.error(err instanceof ApiError ? err.message : '全员静音失败')
   } finally {
     hostActing.value = false
+  }
+}
+
+async function refreshRecordingStatus() {
+  if (!session.value || recordingActing.value) return
+  try {
+    const res = await recordingStatus({ room: session.value.room })
+    if (recordingActing.value) return
+    recordingActive.value = !!res.active
+  } catch {
+    // ignore poll errors
+  }
+}
+
+function startRecordingPoll() {
+  stopRecordingPoll()
+  recordingPollTimer = setInterval(() => {
+    void refreshRecordingStatus()
+  }, 2000)
+}
+
+function stopRecordingPoll() {
+  if (recordingPollTimer) {
+    clearInterval(recordingPollTimer)
+    recordingPollTimer = null
+  }
+}
+
+async function onToggleRecording() {
+  if (!session.value || !isHost.value || recordingActing.value) return
+  const room = session.value.room
+  const stopping = recordingActive.value
+  recordingActive.value = !stopping
+  recordingActing.value = true
+  try {
+    if (stopping) {
+      await stopRecording(room)
+      message.success('已停止录制')
+    } else {
+      await startRecording(room)
+      message.success('已开始录制')
+    }
+  } catch (err) {
+    recordingActive.value = stopping
+    message.error(err instanceof ApiError ? err.message : '录制操作失败')
+    await refreshRecordingStatus()
+  } finally {
+    recordingActing.value = false
   }
 }
 
@@ -334,6 +399,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopRecordingPoll()
   document.removeEventListener('fullscreenchange', syncMainFullscreen)
   if (document.fullscreenElement === mainStageEl.value) {
     void document.exitFullscreen().catch(() => undefined)
@@ -350,6 +416,7 @@ onBeforeUnmount(() => {
           {{ statusText }}
         </Tag>
         <Tag v-if="isHost" color="gold">主持人</Tag>
+        <Tag v-if="recordingActive" color="red">录制中</Tag>
       </div>
       <div class="top-right">
         <div v-if="session" class="meta">
@@ -593,6 +660,18 @@ onBeforeUnmount(() => {
             <SoundOutlined />
           </template>
           全员静音
+        </Button>
+        <Button
+          v-if="isHost"
+          :type="recordingActive ? 'primary' : 'default'"
+          :danger="recordingActive"
+          :loading="recordingActing"
+          @click="onToggleRecording"
+        >
+          <template #icon>
+            <VideoCameraFilled />
+          </template>
+          {{ recordingActive ? '停止录制' : '开始录制' }}
         </Button>
         <Button danger type="primary" @click="leave">
           <template #icon>

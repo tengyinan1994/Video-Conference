@@ -305,8 +305,24 @@ hggen:
 # LiveKit 会议媒体（示例配置；真实密钥请写入被 git 忽略的 config.yaml）
 livekit:
   url: "ws://127.0.0.1:7880"
+  apiUrl: ""
   apiKey: "devkey"
   apiSecret: "secret"
   tokenTTL: 900
   allowAnonymousToken: true
   rateLimitPerMinute: 30
+
+# 会议录制：Egress → RustFS（本机开发可指 docker 映射口）
+recording:
+  enabled: true
+  s3:
+    endpoint: "http://127.0.0.1:17886"
+    # Egress 容器访问 RustFS：本机可用 http://vc-rustfs:9000 或 http://host.docker.internal:17886
+    egressEndpoint: "http://vc-rustfs:9000"
+    accessKey: "rustfsadmin"
+    secretKey: "rustfsadmin"
+    bucket: "recordings"
+    region: "us-east-1"
+    forcePathStyle: true
+  # 可选：把预签名 URL 的 host 改成浏览器可达地址（管理端直链）。客户端回放走 /recording/play 代理。
+  publicEndpoint: ""

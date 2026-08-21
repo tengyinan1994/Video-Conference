@@ -57,6 +57,8 @@ type TokenCreateModel struct {
 	Identity  string `json:"identity" dc:"参与者身份（服务端生成）"`
 	Nickname  string `json:"nickname" dc:"显示昵称"`
 	Token     string `json:"token" dc:"进房 JWT"`
-	ExpiresAt int64  `json:"expiresAt" dc:"过期时间戳（秒）"`
-	IsHost    bool   `json:"isHost" dc:"是否为本房间主持人"`
+	ExpiresAt        int64 `json:"expiresAt" dc:"过期时间戳（秒）"`
+	IsHost           bool  `json:"isHost" dc:"是否为本房间主持人"`
+	RecordEnabled    bool  `json:"recordEnabled" dc:"会议是否开启自动录制"`
+	RecordingActive  bool  `json:"recordingActive" dc:"当前是否已有进行中的录制"`
 }

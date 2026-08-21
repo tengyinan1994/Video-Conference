@@ -309,10 +309,27 @@ hggen:
 
 # LiveKit：url 必须是浏览器可达地址（Token 会原样返回给客户端）
 # 本机/局域网：改成 ws://<宿主机局域网IP>:17880（宿主机映射口，非容器内 7880）
+# apiUrl：服务端调 RoomService/Egress 的 HTTP 地址；compose 内建议 http://livekit:7880，空则从 url 推导
 livekit:
   url: "ws://127.0.0.1:17880"
+  apiUrl: "http://livekit:7880"
   apiKey: "devkey"
   apiSecret: "secretsecretsecretsecretsecret12"
   tokenTTL: 900
   allowAnonymousToken: true
   rateLimitPerMinute: 30
+
+# 会议录制：Egress → RustFS（S3 兼容）
+recording:
+  enabled: true
+  s3:
+    endpoint: "http://rustfs:9000"
+    egressEndpoint: "http://rustfs:9000"
+    accessKey: "rustfsadmin"
+    secretKey: "rustfsadmin"
+    bucket: "recordings"
+    region: "us-east-1"
+    forcePathStyle: true
+  # 浏览器直链回放（可选）。客户端默认走 HotGo /recording/play 代理，不依赖此项。
+  publicEndpoint: ""
+

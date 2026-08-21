@@ -9,6 +9,7 @@ import (
 	"hotgo/addons/conference/service"
 
 	"github.com/gogf/gf/v2/errors/gerror"
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/livekit/protocol/livekit"
 )
 
@@ -28,6 +29,9 @@ func (s *sSysRoom) Kick(ctx context.Context, in *sysin.RoomKickInp) (err error) 
 	}
 	if err = s.assertHost(ctx, in.Room, in.RequesterIdentity); err != nil {
 		return
+	}
+	if isEgressIdentity(in.TargetIdentity) {
+		return gerror.New("不能对录制服务执行此操作")
 	}
 
 	client, _, err := newRoomServiceClient(ctx)
@@ -64,6 +68,9 @@ func (s *sSysRoom) MuteAll(ctx context.Context, in *sysin.RoomMuteAllInp) (res *
 	muted := 0
 	for _, p := range participants {
 		if p == nil || p.Identity == in.RequesterIdentity {
+			continue
+		}
+		if isEgressIdentity(p.Identity) || isEgressIdentity(p.Name) {
 			continue
 		}
 		for _, t := range p.Tracks {
@@ -140,6 +147,11 @@ func (s *sSysRoom) ClaimHost(ctx context.Context, in *sysin.RoomClaimHostInp) (r
 		Metadata: string(meta),
 	})
 	res.IsHost = true
+	if meeting.RecordEnabled != 0 {
+		if autoErr := service.SysRecording().TryAutoStart(ctx, meeting, meeting.HostId); autoErr != nil {
+			g.Log().Warningf(ctx, "conference auto-start recording on claimHost failed meeting=%d err=%+v", meeting.Id, autoErr)
+		}
+	}
 	return
 }
 

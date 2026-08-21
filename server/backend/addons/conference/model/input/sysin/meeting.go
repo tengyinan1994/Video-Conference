@@ -14,11 +14,12 @@ import (
 
 // MeetingCreateInp 创建会议室
 type MeetingCreateInp struct {
-	Title    string      `json:"title" v:"required#会议名称不能为空" dc:"会议名称"`
-	HostId   int64       `json:"hostId" dc:"主持人用户ID，默认当前用户"`
-	HostName string      `json:"hostName" dc:"主持人显示名"`
-	StartAt  *gtime.Time `json:"startAt" v:"required#请填写开始时间" dc:"开始时间"`
-	EndAt    *gtime.Time `json:"endAt" v:"required#请填写结束时间" dc:"结束时间"`
+	Title         string      `json:"title" v:"required#会议名称不能为空" dc:"会议名称"`
+	HostId        int64       `json:"hostId" dc:"主持人用户ID，默认当前用户"`
+	HostName      string      `json:"hostName" dc:"主持人显示名"`
+	StartAt       *gtime.Time `json:"startAt" v:"required#请填写开始时间" dc:"开始时间"`
+	EndAt         *gtime.Time `json:"endAt" v:"required#请填写结束时间" dc:"结束时间"`
+	RecordEnabled bool        `json:"recordEnabled" dc:"是否开启录制（默认关；开则主持人进房自动起第一段）"`
 }
 
 func (in *MeetingCreateInp) Filter(ctx context.Context) (err error) {
@@ -59,19 +60,21 @@ func (in *MeetingListInp) Filter(ctx context.Context) (err error) {
 
 // MeetingItemModel 列表项
 type MeetingItemModel struct {
-	Id        int64       `json:"id"`
-	Title     string      `json:"title"`
-	RoomName  string      `json:"roomName"`
-	HostId    int64       `json:"hostId"`
-	HostName  string      `json:"hostName"`
-	StartAt   *gtime.Time `json:"startAt"`
-	EndAt     *gtime.Time `json:"endAt"`
-	Status    string      `json:"status"`
-	ShareCode string      `json:"shareCode"`
-	ShareUrl  string      `json:"shareUrl" dc:"相对路径 /join/{shareCode}"`
-	IsHost    bool        `json:"isHost" dc:"当前用户是否主持人"`
-	Tab       string      `json:"tab" dc:"ongoing / scheduled / ended"`
-	Attendees []string    `json:"attendees" dc:"参会显示名去重列表"`
+	Id            int64       `json:"id"`
+	Title         string      `json:"title"`
+	RoomName      string      `json:"roomName"`
+	HostId        int64       `json:"hostId"`
+	HostName      string      `json:"hostName"`
+	StartAt       *gtime.Time `json:"startAt"`
+	EndAt         *gtime.Time `json:"endAt"`
+	Status        string      `json:"status"`
+	ShareCode     string      `json:"shareCode"`
+	ShareUrl      string      `json:"shareUrl" dc:"相对路径 /join/{shareCode}"`
+	IsHost        bool        `json:"isHost" dc:"当前用户是否主持人"`
+	Tab           string      `json:"tab" dc:"ongoing / scheduled / ended"`
+	Attendees     []string                  `json:"attendees" dc:"参会显示名去重列表"`
+	RecordEnabled bool                      `json:"recordEnabled" dc:"创建时录制开关"`
+	Recordings    []*RecordingSegmentModel  `json:"recordings" dc:"录制分段（含回放地址）"`
 }
 
 // MeetingReleaseInp 结束会议室（保留记录，计入历史）
@@ -100,10 +103,11 @@ func (in *MeetingDeleteInp) Filter(ctx context.Context) (err error) {
 
 // MeetingUpdateInp 更新会议室（名称与时间）
 type MeetingUpdateInp struct {
-	Id      int64       `json:"id" v:"required#会议ID不能为空" dc:"会议ID"`
-	Title   string      `json:"title" v:"required#会议名称不能为空" dc:"会议名称"`
-	StartAt *gtime.Time `json:"startAt" v:"required#请填写开始时间" dc:"开始时间"`
-	EndAt   *gtime.Time `json:"endAt" v:"required#请填写结束时间" dc:"结束时间"`
+	Id            int64       `json:"id" v:"required#会议ID不能为空" dc:"会议ID"`
+	Title         string      `json:"title" v:"required#会议名称不能为空" dc:"会议名称"`
+	StartAt       *gtime.Time `json:"startAt" v:"required#请填写开始时间" dc:"开始时间"`
+	EndAt         *gtime.Time `json:"endAt" v:"required#请填写结束时间" dc:"结束时间"`
+	RecordEnabled *bool       `json:"recordEnabled" dc:"是否开启录制；nil 表示不改"`
 }
 
 func (in *MeetingUpdateInp) Filter(ctx context.Context) (err error) {
@@ -182,22 +186,24 @@ func (in *AdminMeetingListInp) Filter(ctx context.Context) (err error) {
 
 // AdminMeetingListModel 管理端列表项
 type AdminMeetingListModel struct {
-	Id         int64       `json:"id" dc:"会议ID"`
-	Title      string      `json:"title" dc:"会议名称"`
-	RoomName   string      `json:"roomName" dc:"房间名"`
-	HostId     int64       `json:"hostId" dc:"主持人ID"`
-	HostName   string      `json:"hostName" dc:"主持人"`
-	StartAt    *gtime.Time `json:"startAt" dc:"开始时间"`
-	EndAt      *gtime.Time `json:"endAt" dc:"结束时间"`
-	Status     string      `json:"status" dc:"有效状态"`
-	ShareCode  string      `json:"shareCode" dc:"分享码"`
-	ShareUrl   string      `json:"shareUrl" dc:"分享路径"`
-	Tab        string      `json:"tab" dc:"分区"`
-	CreatedBy  int64       `json:"createdBy" dc:"创建者"`
-	CreatedAt  *gtime.Time `json:"createdAt" dc:"创建时间"`
-	UpdatedAt  *gtime.Time `json:"updatedAt" dc:"更新时间"`
-	ReleasedAt *gtime.Time `json:"releasedAt" dc:"结束时间点"`
-	Attendees  []string    `json:"attendees" dc:"参会显示名去重列表"`
+	Id            int64       `json:"id" dc:"会议ID"`
+	Title         string      `json:"title" dc:"会议名称"`
+	RoomName      string      `json:"roomName" dc:"房间名"`
+	HostId        int64       `json:"hostId" dc:"主持人ID"`
+	HostName      string      `json:"hostName" dc:"主持人"`
+	StartAt       *gtime.Time `json:"startAt" dc:"开始时间"`
+	EndAt         *gtime.Time `json:"endAt" dc:"结束时间"`
+	Status        string      `json:"status" dc:"有效状态"`
+	ShareCode     string      `json:"shareCode" dc:"分享码"`
+	ShareUrl      string      `json:"shareUrl" dc:"分享路径"`
+	Tab           string      `json:"tab" dc:"分区"`
+	CreatedBy     int64       `json:"createdBy" dc:"创建者"`
+	CreatedAt     *gtime.Time `json:"createdAt" dc:"创建时间"`
+	UpdatedAt     *gtime.Time `json:"updatedAt" dc:"更新时间"`
+	ReleasedAt    *gtime.Time `json:"releasedAt" dc:"结束时间点"`
+	Attendees     []string                 `json:"attendees" dc:"参会显示名去重列表"`
+	RecordEnabled bool                     `json:"recordEnabled" dc:"是否开启录制"`
+	Recordings    []*RecordingSegmentModel `json:"recordings" dc:"录制分段"`
 }
 
 // AdminMeetingViewInp 管理端会议详情
@@ -219,12 +225,13 @@ type AdminMeetingViewModel struct {
 
 // AdminMeetingEditInp 管理端新增/编辑会议（不受状态限制）
 type AdminMeetingEditInp struct {
-	Id       int64       `json:"id" dc:"会议ID，大于0为编辑"`
-	Title    string      `json:"title" v:"required#会议名称不能为空" dc:"会议名称"`
-	HostId   int64       `json:"hostId" dc:"主持人用户ID"`
-	HostName string      `json:"hostName" dc:"主持人显示名"`
-	StartAt  *gtime.Time `json:"startAt" v:"required#请填写开始时间" dc:"开始时间"`
-	EndAt    *gtime.Time `json:"endAt" v:"required#请填写结束时间" dc:"结束时间"`
+	Id            int64       `json:"id" dc:"会议ID，大于0为编辑"`
+	Title         string      `json:"title" v:"required#会议名称不能为空" dc:"会议名称"`
+	HostId        int64       `json:"hostId" dc:"主持人用户ID"`
+	HostName      string      `json:"hostName" dc:"主持人显示名"`
+	StartAt       *gtime.Time `json:"startAt" v:"required#请填写开始时间" dc:"开始时间"`
+	EndAt         *gtime.Time `json:"endAt" v:"required#请填写结束时间" dc:"结束时间"`
+	RecordEnabled bool        `json:"recordEnabled" dc:"是否开启录制"`
 }
 
 func (in *AdminMeetingEditInp) Filter(ctx context.Context) (err error) {

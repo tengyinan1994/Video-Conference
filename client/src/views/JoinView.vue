@@ -84,6 +84,8 @@ async function onJoin() {
         enableCamera: form.enableCamera,
         fromShare: true,
         shareCode: shareCode.value,
+        recordEnabled: !!data.recordEnabled,
+        recordingActive: !!data.recordingActive,
       }),
     )
     await router.push({ name: 'room', params: { room: data.room } })

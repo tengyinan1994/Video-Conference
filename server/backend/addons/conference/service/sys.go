@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"io"
 
 	"hotgo/addons/conference/model/entity"
 	"hotgo/addons/conference/model/input/sysin"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 type (
@@ -15,6 +18,17 @@ type (
 		Kick(ctx context.Context, in *sysin.RoomKickInp) (err error)
 		MuteAll(ctx context.Context, in *sysin.RoomMuteAllInp) (res *sysin.RoomMuteAllModel, err error)
 		ClaimHost(ctx context.Context, in *sysin.RoomClaimHostInp) (res *sysin.RoomClaimHostModel, err error)
+	}
+	ISysRecording interface {
+		Start(ctx context.Context, in *sysin.RecordingStartInp) (res *sysin.RecordingStartModel, err error)
+		Stop(ctx context.Context, in *sysin.RecordingStopInp) (res *sysin.RecordingStopModel, err error)
+		Status(ctx context.Context, in *sysin.RecordingStatusInp) (res *sysin.RecordingStatusModel, err error)
+		TryAutoStart(ctx context.Context, meeting *entity.Meeting, startedBy int64) (err error)
+		StopAllForMeeting(ctx context.Context, meetingId int64, roomName string)
+		HandleEgressWebhook(ctx context.Context, info *livekit.EgressInfo)
+		ListByMeetingIDs(ctx context.Context, meetingIDs []int64) (map[int64][]*sysin.RecordingSegmentModel, error)
+		OpenForDownload(ctx context.Context, id int64) (rc io.ReadCloser, filename string, size int64, err error)
+		OpenForPlay(ctx context.Context, id int64, rangeHeader string) (st *sysin.RecordingPlayStream, err error)
 	}
 	ISysMeeting interface {
 		Create(ctx context.Context, in *sysin.MeetingCreateInp) (res *sysin.MeetingItemModel, err error)
@@ -45,10 +59,11 @@ type (
 )
 
 var (
-	localSysToken   ISysToken
-	localSysRoom    ISysRoom
-	localSysMeeting ISysMeeting
-	localSysAuth    ISysAuth
+	localSysToken     ISysToken
+	localSysRoom      ISysRoom
+	localSysMeeting   ISysMeeting
+	localSysAuth      ISysAuth
+	localSysRecording ISysRecording
 )
 
 func SysToken() ISysToken {
@@ -93,4 +108,15 @@ func SysAuth() ISysAuth {
 
 func RegisterSysAuth(i ISysAuth) {
 	localSysAuth = i
+}
+
+func SysRecording() ISysRecording {
+	if localSysRecording == nil {
+		panic("implement not found for interface ISysRecording, forgot register?")
+	}
+	return localSysRecording
+}
+
+func RegisterSysRecording(i ISysRecording) {
+	localSysRecording = i
 }

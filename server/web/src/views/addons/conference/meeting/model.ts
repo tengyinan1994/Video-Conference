@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { h, ref } from 'vue';
 import { cloneDeep } from 'lodash-es';
 import { FormSchema } from '@/components/Form';
 import { defRangeShortcuts } from '@/utils/dateUtil';
@@ -24,6 +24,14 @@ export class State {
   public createdAt = '';
   public updatedAt = '';
   public releasedAt = '';
+  public recordEnabled = false;
+  public recordings: Array<{
+    id: number;
+    seq: number;
+    status: string;
+    playUrl?: string;
+    downloadUrl?: string;
+  }> = [];
 
   constructor(state?: Partial<State>) {
     if (state) {
@@ -154,6 +162,54 @@ export const columns = [
     title: '分享码',
     key: 'shareCode',
     width: 140,
+  },
+  {
+    title: '录制',
+    key: 'recordings',
+    width: 240,
+    render(row) {
+      const segs = Array.isArray(row.recordings) ? row.recordings : [];
+      if (!segs.length) {
+        return row.recordEnabled ? '已开启（暂无文件）' : '未开启';
+      }
+      return h(
+        'div',
+        { style: 'display:flex;flex-wrap:wrap;gap:6px 10px;' },
+        segs.map((seg) => {
+          if (seg.playUrl || seg.downloadUrl) {
+            const play = seg.playUrl
+              ? h(
+                  'a',
+                  {
+                    href: seg.playUrl,
+                    target: '_blank',
+                    rel: 'noopener',
+                    style: 'margin-right:8px',
+                  },
+                  `第${seg.seq}段回放`
+                )
+              : null;
+            const download = h(
+              'a',
+              {
+                href: seg.downloadUrl || seg.playUrl,
+                download: `recording-${row.id}-${seg.seq}.mp4`,
+                rel: 'noopener',
+              },
+              play ? '下载' : `第${seg.seq}段下载`
+            );
+            return h('span', { style: 'margin-right:10px' }, [play, download].filter(Boolean));
+          }
+          const label =
+            seg.status === 'failed'
+              ? `第${seg.seq}段(失败)`
+              : seg.status === 'complete'
+                ? `第${seg.seq}段(无文件)`
+                : `第${seg.seq}段(${seg.status || '处理中'})`;
+          return h('span', label);
+        })
+      );
+    },
   },
   {
     title: '创建时间',

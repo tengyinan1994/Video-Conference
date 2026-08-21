@@ -12,6 +12,9 @@ rtc:
   tcp_port: 17881
   udp_port: 17882
   use_external_ip: false
+redis:
+  address: 127.0.0.1:6379
+  db: 0
 keys:
   devkey: secretsecretsecretsecretsecret12
 webhook:
