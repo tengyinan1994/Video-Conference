@@ -324,5 +324,9 @@ recording:
     bucket: "recordings"
     region: "us-east-1"
     forcePathStyle: true
-  # 可选：把预签名 URL 的 host 改成浏览器可达地址（管理端直链）。客户端回放走 /recording/play 代理。
+  # 合成编码（可选）。不填则 2560x1440@60、12000kbps，对齐会中投屏。LiveKit 默认是 720p30。
+  # width: 2560
+  # height: 1440
+  # framerate: 60
+  # videoBitrate: 12000
   publicEndpoint: ""

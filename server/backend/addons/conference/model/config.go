@@ -16,6 +16,10 @@ type RecordingConfig struct {
 	Enabled        bool           `json:"enabled"`
 	S3             RecordingS3    `json:"s3"`
 	PublicEndpoint string         `json:"publicEndpoint"`
+	Width          int            `json:"width"`        // 合成宽，默认 2560（与会中投屏 2K 一致）
+	Height         int            `json:"height"`       // 合成高，默认 1440
+	Framerate      int            `json:"framerate"`    // 默认 60
+	VideoBitrate   int            `json:"videoBitrate"` // kbps，默认 12000
 }
 
 type RecordingS3 struct {

@@ -267,9 +267,16 @@ func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meetin
 	}
 
 	forcePath := recCfg.S3.ForcePathStyle
+	enc := recordingEncoding(recCfg)
+	g.Log().Infof(ctx, "start room composite encoding=%dx%d@%dfps %dkbps codec=%s meeting=%d",
+		enc.Width, enc.Height, enc.Framerate, enc.VideoBitrate, enc.VideoCodec.String(), meeting.Id)
 	req := &livekit.RoomCompositeEgressRequest{
 		RoomName: meeting.RoomName,
 		Layout:   "speaker",
+		// 与会中投屏一致：2K@60。Room Composite 默认 720p30，1080p 对 2K 文字仍会发虚。
+		Options: &livekit.RoomCompositeEgressRequest_Advanced{
+			Advanced: enc,
+		},
 		FileOutputs: []*livekit.EncodedFileOutput{{
 			FileType: livekit.EncodedFileType_MP4,
 			Filepath: objectKey,
@@ -493,6 +500,32 @@ func presignRecordingObject(ctx context.Context, cfg *model.RecordingConfig, obj
 		return "", gerror.Wrap(err, "生成录制文件地址失败")
 	}
 	return u.String(), nil
+}
+
+func recordingEncoding(cfg *model.RecordingConfig) *livekit.EncodingOptions {
+	w, h, fps, br := 2560, 1440, 60, 12000
+	if cfg != nil {
+		if cfg.Width > 0 {
+			w = cfg.Width
+		}
+		if cfg.Height > 0 {
+			h = cfg.Height
+		}
+		if cfg.Framerate > 0 {
+			fps = cfg.Framerate
+		}
+		if cfg.VideoBitrate > 0 {
+			br = cfg.VideoBitrate
+		}
+	}
+	return &livekit.EncodingOptions{
+		Width:        int32(w),
+		Height:       int32(h),
+		Framerate:    int32(fps),
+		VideoBitrate: int32(br),
+		AudioBitrate: 128,
+		VideoCodec:   livekit.VideoCodec_H264_HIGH,
+	}
 }
 
 func s3UploadEndpoint(cfg *model.RecordingConfig) string {

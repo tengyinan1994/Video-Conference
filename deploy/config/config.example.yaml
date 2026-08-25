@@ -330,6 +330,11 @@ recording:
     bucket: "recordings"
     region: "us-east-1"
     forcePathStyle: true
+  # 合成编码（可选）。不填则 2560x1440@60、12000kbps，对齐会中投屏。LiveKit 默认是 720p30。
+  # width: 2560
+  # height: 1440
+  # framerate: 60
+  # videoBitrate: 12000
   # 浏览器直链回放（可选）。客户端默认走 HotGo /recording/play 代理，不依赖此项。
   publicEndpoint: ""
 

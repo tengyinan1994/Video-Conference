@@ -4,7 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"hotgo/addons/conference/model"
 	"hotgo/addons/conference/model/input/sysin"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 func TestParseByteRange(t *testing.T) {
@@ -55,5 +58,19 @@ func TestApplyPublicEndpoint(t *testing.T) {
 	}
 	if applyPublicEndpoint(raw, "") != raw {
 		t.Fatal("empty public endpoint should keep original")
+	}
+}
+
+func TestRecordingEncodingDefaults(t *testing.T) {
+	opt := recordingEncoding(nil)
+	if opt.Width != 2560 || opt.Height != 1440 || opt.Framerate != 60 || opt.VideoBitrate != 12000 {
+		t.Fatalf("defaults: %+v", opt)
+	}
+	if opt.VideoCodec != livekit.VideoCodec_H264_HIGH {
+		t.Fatalf("codec: %v", opt.VideoCodec)
+	}
+	opt = recordingEncoding(&model.RecordingConfig{Width: 1920, Height: 1080, Framerate: 30, VideoBitrate: 6000})
+	if opt.Width != 1920 || opt.Height != 1080 || opt.Framerate != 30 || opt.VideoBitrate != 6000 {
+		t.Fatalf("override: %+v", opt)
 	}
 }
