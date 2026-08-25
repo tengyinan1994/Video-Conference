@@ -15,13 +15,18 @@
 
 ## 本机开发启动
 
+> **换网后必做**：本机 IP 会变，先跑 `./deploy/ip.sh -w`（自动检测新 IP 并写入 `deploy/.env` 的 `LIVEKIT_NODE_IP` 和 `deploy/config/config.yaml` 的 `livekit.url`），再重启 LiveKit。
+
 1. MySQL / Redis：已用 `/Users/chaoming/Middleware/docker-compose.yml`，或本仓库 `deploy/docker-compose.yml` 只起中间件
 2. 独立库：`video_conference`（不要用其他项目的 `hotgo` 库）
-3. LiveKit：推荐 `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up livekit`（已含 webhook）
+3. LiveKit：`./deploy/dev-livekit.sh`（本机开发用，7880 信令 / 7881 TCP / 7882 UDP，自动用当前局域网 IP 重建 `livekit-dev` 容器，密钥与后端 `manifest/config/config.yaml` 一致）
+   - 若要跑 compose 版（17880 端口）：`docker compose -f deploy/docker-compose.yml --env-file deploy/.env up livekit`
    - 若用 brew：`livekit-server --config deploy/livekit.yaml` 或 `--dev` 均可；**参会名单在签发 Token 时写入**，不依赖 webhook
 4. HotGo：`cd server/backend && air`
 5. 客户端：`cd client && pnpm dev` → <http://127.0.0.1:5173>
 6. 已有库补字段：执行 `deploy/init/05-conference-meeting-attendees.sql`
+
+> 开发模式下客户端始终走同源 `/rtc`（Vite 代理 → `127.0.0.1:7880`），因此后端 `livekit.url` 换网时**不用改**；只有 Tauri 安装包 / 局域网对端直连才需要它指向可达地址。
 
 Token API：`POST /api/conference/token/create`，body：`{"room":"demo","nickname":"张三"}`（成功签发后会把昵称写入会议 `attendees`）
 
@@ -32,7 +37,9 @@ Webhook（可选增强）：`POST /api/conference/webhook/livekit`（与 Token �
 ```bash
 cp deploy/.env.example deploy/.env
 cp deploy/config/config.example.yaml deploy/config/config.yaml
-# 编辑 .env 的 LIVEKIT_NODE_IP、ARCH；编辑 config.yaml 的 livekit.url
+# 用 ./deploy/ip.sh -w 自动写入当前局域网 IP（LIVEKIT_NODE_IP + livekit.url）；
+# 手动改 ARCH 为 amd64|arm64（与打包脚本一致）
+./deploy/ip.sh -w
 
 # 打包镜像（按目标架构二选一）
 ./deploy/images/build-amd64.sh

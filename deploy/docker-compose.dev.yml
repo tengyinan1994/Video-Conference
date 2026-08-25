@@ -1,0 +1,42 @@
+# 开发环境专用 Egress（Setup A：livekit-dev @ 宿主 7880 + 宿主 redis + vc-rustfs 宿主映射口 17886）。
+# 与主 deploy/docker-compose.yml 里的 egress（部署用，走 compose 内网）完全独立，容器名也不同（vc-egress-dev）。
+#
+# 用法：
+#   ./deploy/start-egress-when-ready.sh        # 推荐：等镜像就绪后启动
+#   或 docker compose -f deploy/docker-compose.dev.yml up -d egress
+#   查看：docker compose -f deploy/docker-compose.dev.yml ps / logs egress
+
+name: video-conference-dev
+
+services:
+  egress:
+    image: livekit/egress:latest
+    container_name: vc-egress-dev
+    restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN
+    # Linux 需要显式 host-gateway；macOS Docker Desktop 内置，写上无副作用
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      # 密钥 devkey:secret 与 livekit-dev / 后端 manifest/config/config.yaml 对齐；
+      # ws/redis 走宿主（livekit-dev 与 Middleware redis 的映射口），S3 走宿主 17886 -> vc-rustfs
+      EGRESS_CONFIG_BODY: |
+        api_key: devkey
+        api_secret: secret
+        ws_url: ws://host.docker.internal:7880
+        redis:
+          address: host.docker.internal:6379
+          db: 1
+        insecure: true
+        logging:
+          level: info
+        s3:
+          access_key: rustfsadmin
+          secret: rustfsadmin
+          region: us-east-1
+          endpoint: http://host.docker.internal:17886
+          bucket: recordings
+          force_path_style: true

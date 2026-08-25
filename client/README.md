@@ -27,7 +27,7 @@ pnpm tauri:dev
 
 VS Code / Cursor：`Client (Vite)` 或 `Client (Tauri)`；复合启动可用「仅开会（Tauri 壳）」。
 
-**安装包**：业务地址写死在 `client/.env.production`（当前 `http://10.64.3.83:8000`，即 HotGo）。换内网 IP 时改该文件后重新 `pnpm tauri:build`。HotGo 的 `livekit.url` 也要用局域网可达地址。
+**安装包**：业务地址写死在 `client/.env.production`（当前 `http://127.0.0.1:8000`，即 HotGo）。换地址时改该文件后重新 `pnpm tauri:build`。局域网开会时 HotGo 的 `livekit.url` 和 LiveKit `node_ip` 要用对端能访问的地址，不要用 `127.0.0.1`。
 
 `:8000` = HotGo（发 Token / 踢人 / 全员静音）；`:7880` = LiveKit 媒体。
 

@@ -2,7 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "LiveKit",
+      "name": "LiveKit (本机 7880, IP 自动)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "bash \"${workspaceFolder}/deploy/dev-livekit.sh\"",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "LiveKit (Compose 17880)",
       "type": "node-terminal",
       "request": "launch",
       "command": "docker compose -f \"${workspaceFolder}/deploy/docker-compose.yml\" --env-file \"${workspaceFolder}/deploy/.env\" up livekit",
@@ -51,7 +58,7 @@
     {
       "name": "启动全部",
       "configurations": [
-        "LiveKit",
+        "LiveKit (本机 7880, IP 自动)",
         "HotGo API (Air)",
         "HotGo Web",
         "Client (Vite)"
@@ -65,7 +72,7 @@
     },
     {
       "name": "仅开会（不含管理后台）",
-      "configurations": ["LiveKit", "HotGo API (Air)", "Client (Vite)"],
+      "configurations": ["LiveKit (本机 7880, IP 自动)", "HotGo API (Air)", "Client (Vite)"],
       "stopAll": true,
       "presentation": {
         "order": 2,
@@ -75,7 +82,7 @@
     },
     {
       "name": "仅开会（Tauri 壳）",
-      "configurations": ["LiveKit", "HotGo API (Air)", "Client (Tauri)"],
+      "configurations": ["LiveKit (本机 7880, IP 自动)", "HotGo API (Air)", "Client (Tauri)"],
       "stopAll": true,
       "presentation": {
         "order": 3,

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 本机开发：等 livekit/egress 镜像就绪后启动录制旁路（RustFS 需已在跑）
+# 本机开发：等 livekit/egress 镜像就绪后启动录制旁路（RustFS 需已在跑，宿主口 17886）
+# 由 deploy/docker-compose.dev.yml 管理开发版 Egress（vc-egress-dev）
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -23,35 +24,14 @@ for i in $(seq 1 180); do
   fi
 done
 
-docker network create vc-dev 2>/dev/null || true
-docker rm -f vc-egress 2>/dev/null || true
+# 开发版 Egress 由 deploy/docker-compose.dev.yml 管理（容器 vc-egress-dev），
+# 连宿主 7880 的 livekit-dev；与主 compose 里部署版 egress 相互独立。
+# 旧版用 docker run 起的 vc-egress（若还在）先清掉，避免与新容器并存。
+docker rm -f vc-egress >/dev/null 2>&1 || true
 
-docker run -d --name vc-egress --network vc-dev --restart unless-stopped \
-  --add-host=host.docker.internal:host-gateway \
-  --cap-add=SYS_ADMIN \
-  -e AWS_REQUEST_CHECKSUM_CALCULATION=when_required \
-  -e AWS_RESPONSE_CHECKSUM_VALIDATION=when_required \
-  -e "EGRESS_CONFIG_BODY=
-api_key: devkey
-api_secret: secret
-ws_url: ws://host.docker.internal:7880
-redis:
-  address: host.docker.internal:6379
-  db: 1
-insecure: true
-logging:
-  level: info
-s3:
-  access_key: rustfsadmin
-  secret: rustfsadmin
-  region: us-east-1
-  endpoint: http://vc-rustfs:9000
-  bucket: recordings
-  force_path_style: true
-" \
-  livekit/egress:latest
+docker compose -f deploy/docker-compose.dev.yml up -d egress
 
 sleep 2
-docker ps --filter name=vc-egress --format 'table {{.Names}}\t{{.Status}}'
-docker logs vc-egress 2>&1 | tail -20
+docker compose -f deploy/docker-compose.dev.yml ps
+docker logs vc-egress-dev 2>&1 | tail -20
 echo "egress started"
