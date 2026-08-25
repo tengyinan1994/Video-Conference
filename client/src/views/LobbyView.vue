@@ -82,14 +82,8 @@ const editForm = reactive({
 })
 
 const sortedMeetings = computed(() => {
-  const order: Record<string, number> = { ongoing: 0, scheduled: 1, ended: 2 }
   const list = [...meetings.value]
-  list.sort((a, b) => {
-    const ao = order[a.tab] ?? 9
-    const bo = order[b.tab] ?? 9
-    if (ao !== bo) return ao - bo
-    return dayjs(a.startAt).valueOf() - dayjs(b.startAt).valueOf()
-  })
+  list.sort((a, b) => dayjs(b.startAt).valueOf() - dayjs(a.startAt).valueOf())
   return list
 })
 

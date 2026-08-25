@@ -131,7 +131,7 @@ func (s *sSysMeeting) List(ctx context.Context, in *sysin.MeetingListInp) (list 
 	}
 
 	var rows []*entity.Meeting
-	if err = mod.OrderAsc("start_at").Scan(&rows); err != nil {
+	if err = mod.OrderDesc("start_at").Scan(&rows); err != nil {
 		return nil, gerror.Wrap(err, "查询会议室失败")
 	}
 	list = make([]*sysin.MeetingItemModel, 0, len(rows))
