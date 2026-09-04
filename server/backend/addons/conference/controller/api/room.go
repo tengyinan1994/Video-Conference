@@ -32,6 +32,16 @@ func (c *cRoom) MuteAll(ctx context.Context, req *room.MuteAllReq) (res *room.Mu
 	return
 }
 
+func (c *cRoom) UnmuteAll(ctx context.Context, req *room.UnmuteAllReq) (res *room.UnmuteAllRes, err error) {
+	data, err := service.SysRoom().UnmuteAll(ctx, &req.RoomMuteAllInp)
+	if err != nil {
+		return
+	}
+	res = new(room.UnmuteAllRes)
+	res.RoomUnmuteAllModel = data
+	return
+}
+
 func (c *cRoom) ClaimHost(ctx context.Context, req *room.ClaimHostReq) (res *room.ClaimHostRes, err error) {
 	data, err := service.SysRoom().ClaimHost(ctx, &req.RoomClaimHostInp)
 	if err != nil {

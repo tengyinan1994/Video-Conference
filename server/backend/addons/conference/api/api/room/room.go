@@ -24,6 +24,16 @@ type MuteAllRes struct {
 	*sysin.RoomMuteAllModel
 }
 
+// UnmuteAllReq 取消全员静音（麦克风）
+type UnmuteAllReq struct {
+	g.Meta `path:"/room/unmuteAll" method:"post" tags:"视频会议" summary:"主持人取消全员静音"`
+	sysin.RoomMuteAllInp
+}
+
+type UnmuteAllRes struct {
+	*sysin.RoomUnmuteAllModel
+}
+
 // ClaimHostReq 进房后认领/同步主持人（空房或原主持已离会时可接任）
 type ClaimHostReq struct {
 	g.Meta `path:"/room/claimHost" method:"post" tags:"视频会议" summary:"同步预定主持人标记（不转让）"`

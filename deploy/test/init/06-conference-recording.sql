@@ -1,4 +1,5 @@
 -- 会议录制开关 + 多段录制表（幂等）
+SET NAMES utf8mb4;
 
 SET @exist := (
   SELECT COUNT(*)

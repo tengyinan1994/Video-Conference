@@ -193,7 +193,7 @@
 
   const rules = {
     username: { required: true, message: '请输入用户名', trigger: 'blur' },
-    pass: { required: true, message: '请输入密码', trigger: 'blur' },
+    pass: { validator: validate.strongPassword, trigger: 'blur' },
     mobile: { required: true, message: '请输入手机号码', trigger: 'blur' },
     code: { required: true, message: '请输入验证码', trigger: 'blur' },
   };

@@ -1,4 +1,6 @@
 -- 为已有会议表补充参会昵称列表字段（幂等）
+SET NAMES utf8mb4;
+
 SET @exist := (
   SELECT COUNT(*)
   FROM information_schema.COLUMNS

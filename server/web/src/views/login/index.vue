@@ -246,9 +246,15 @@
     --n-border-focus: 1px solid rgba(243, 160, 76, 0.8) !important;
     --n-color: var(--login-field) !important;
     --n-color-focus: rgba(255, 255, 255, 0.14) !important;
+    /* Naive UI 在“校验错误/警告 + 聚焦”时会把容器背景切到 --n-color-focus-error/warning，
+       其默认值是纯白（inputColor），而本页文字是浅色，导致“白底白字”看不清。
+       这里把 error/warning 的聚焦背景一并拉回玻璃暗色，保证可读。 */
+    --n-color-focus-warning: rgba(255, 255, 255, 0.14) !important;
+    --n-color-focus-error: rgba(255, 255, 255, 0.14) !important;
     --n-text-color: rgba(248, 250, 252, 0.95) !important;
     --n-placeholder-color: rgba(203, 213, 225, 0.55) !important;
     --n-caret-color: var(--login-brand) !important;
+    --n-caret-color-error: var(--login-brand) !important;
     --n-box-shadow: none !important;
     backdrop-filter: blur(8px);
   }
@@ -256,6 +262,25 @@
   :deep(.n-input .n-input__input-el),
   :deep(.n-input .n-input__textarea-el) {
     color: rgba(248, 250, 252, 0.95);
+  }
+
+  /* 覆盖浏览器自动填充（autofill）样式：autofill 会给 input 铺一层亮色背景，
+     而本页文字是浅色，导致“浅底白字”看不清输入内容（复制粘贴/自动填充后尤甚）。
+     用内阴影框把背景拉回玻璃暗色，并强制文字与光标为浅色，保证可读。 */
+  :deep(.n-input .n-input__input-el:-webkit-autofill),
+  :deep(.n-input .n-input__input-el:-webkit-autofill:hover),
+  :deep(.n-input .n-input__input-el:-webkit-autofill:focus),
+  :deep(.n-input .n-input__input-el:-webkit-autofill:active),
+  :deep(.n-input .n-input__textarea-el:-webkit-autofill),
+  :deep(.n-input .n-input__textarea-el:-webkit-autofill:hover),
+  :deep(.n-input .n-input__textarea-el:-webkit-autofill:focus),
+  :deep(.n-input .n-input__textarea-el:-webkit-autofill:active) {
+    box-shadow: 0 0 0 1000px #2f3947 inset !important;
+    -webkit-box-shadow: 0 0 0 1000px #2f3947 inset !important;
+    -webkit-text-fill-color: rgba(248, 250, 252, 0.95) !important;
+    caret-color: var(--login-brand) !important;
+    background-color: transparent !important;
+    transition: background-color 999999s ease-in-out 0s;
   }
 
   :deep(.n-input .n-icon) {

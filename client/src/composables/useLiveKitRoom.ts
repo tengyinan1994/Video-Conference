@@ -1,8 +1,9 @@
-import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, shallowRef, watch } from 'vue'
 import {
   ConnectionQuality,
   ConnectionState,
   createLocalTracks,
+  DisconnectReason,
   type LocalParticipant,
   type LocalTrack,
   type Participant,
@@ -21,6 +22,8 @@ export type ConnectionStatus =
   | 'connected'
   | 'reconnecting'
   | 'disconnected'
+  | 'kicked'
+  | 'ended'
   | 'error'
 
 export type LayoutMode = 'avatar' | 'speaker'
@@ -119,20 +122,74 @@ function isDisplayMediaCancelled(err: unknown): boolean {
   return /Permission denied by user/i.test(message)
 }
 
-function mediaErrorMessage(err: unknown): string {
-  const name = err instanceof DOMException ? err.name : ''
-  const message = err instanceof Error ? err.message : String(err)
-  if (name === 'NotAllowedError' || message.includes('Permission')) {
-    return '摄像头/麦克风权限被拒绝，请在浏览器设置中允许后重试'
+/** getDisplayMedia 是否可用：iOS Safari 及大部分 Android 浏览器不支持屏幕共享 */
+function isScreenShareSupported(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return typeof navigator.mediaDevices?.getDisplayMedia === 'function'
+}
+
+function connectionErrorReason(err: unknown): string {
+  if (!err || typeof err !== 'object') return ''
+  const reasonName = (err as { reasonName?: unknown }).reasonName
+  return typeof reasonName === 'string' ? reasonName : ''
+}
+
+export function mediaErrorMessage(err: unknown): string {
+  // 兼容不同错误形态：浏览器 DOMException / JS Error / LiveKit 自定义错误 / 普通对象 { name, message }
+  let name = ''
+  let message = ''
+  if (err instanceof DOMException || err instanceof Error) {
+    name = err.name || ''
+    message = err.message || ''
+  } else if (err && typeof err === 'object') {
+    const obj = err as { name?: unknown; message?: unknown }
+    name = typeof obj.name === 'string' ? obj.name : ''
+    message = typeof obj.message === 'string' ? obj.message : ''
+  } else if (err !== undefined && err !== null) {
+    message = String(err)
+  }
+  const reason = connectionErrorReason(err)
+  const status =
+    err && typeof err === 'object' && 'status' in err
+      ? Number((err as { status?: unknown }).status)
+      : NaN
+  // 摄像头/麦克风权限被浏览器拦截或拒绝。
+  // 不同浏览器/版本抛出的文案差异很大（如 "Permission denied"、"permission denied"、
+  // Firefox "denied permission"、独立对象 { name: 'NotAllowedError' } 等），统一归一化后大小写不敏感匹配。
+  const lowerText = `${name} ${message}`.toLowerCase()
+  if (
+    name === 'NotAllowedError' ||
+    lowerText.includes('notallowed') ||
+    lowerText.includes('permission denied') ||
+    lowerText.includes('permission')
+  ) {
+    return '未获得摄像头/麦克风权限，已被浏览器拦截。请点击浏览器地址栏的权限图标，允许使用摄像头和麦克风后，再点「取消静音」重试'
   }
   if (name === 'NotReadableError' || message.includes('Device in use')) {
     return '设备被其他应用占用，请关闭占用后重试'
   }
+  if (name === 'DeviceUnsupportedError' || message.includes('getDisplayMedia not supported')) {
+    // 移动端（iOS Safari / 大部分 Android 浏览器）没有 getDisplayMedia，无法屏幕共享
+    return '当前设备或浏览器不支持屏幕共享，请使用电脑端浏览器'
+  }
   if (message.includes('secure') || message.includes('getUserMedia')) {
     return '当前页面不是安全上下文，请使用 localhost 或 https 访问'
   }
-  if (message.includes('Failed to fetch') || message.includes('signal connection')) {
-    return '无法连接 LiveKit 信令服务。请确认 livekit-server 已启动，或刷新后重试'
+  // LiveKit ConnectionError：区分票据无效 / 服务不可达，避免一律提示「server 未启动」
+  if (reason === 'NotAllowed' || status === 401 || status === 403) {
+    return '进房凭证无效或已失效，请返回后重新进入会议'
+  }
+  if (reason === 'Timeout' || message.includes('timed out')) {
+    return '连接 LiveKit 超时。请检查网络后重试，或确认会议仍可加入'
+  }
+  if (
+    reason === 'ServerUnreachable' ||
+    reason === 'WebSocket' ||
+    message.includes('Failed to fetch') ||
+    message.includes('signal connection') ||
+    message.includes('server was not reachable')
+  ) {
+    return '无法连接 LiveKit 信令服务。请确认已用 https 打开会议页并信任证书后刷新重试；若刚离开又进，请从分享链接重新进入'
   }
   if (
     message.includes('could not establish pc connection') ||
@@ -204,6 +261,8 @@ export function useLiveKitRoom() {
   const chatMessages = ref<ChatMessage[]>([])
   /** 本地主视图钉选（每人自己选，不广播）；为多人同时共享时切换主画面预留 */
   const focusedIdentity = ref<string | null>(null)
+  /** 钉选对象暂时无画面时，主视图回退到的人（保持稳定，不跟说话人跳） */
+  const standbyIdentity = ref<string | null>(null)
   const activeSpeakerId = ref('')
 
   const audioInputs = ref<MediaDeviceOption[]>([])
@@ -235,7 +294,33 @@ export function useLiveKitRoom() {
   const anyoneScreenSharing = computed(() => participants.value.some((p) => p.isScreenSharing))
   const layoutMode = computed<LayoutMode>(() => (hasActiveVideo.value ? 'speaker' : 'avatar'))
 
-  /** 主画面：优先本地钉选（须仍有画面）→ 投屏者 → 开摄像头的说话人 → 任一有画面的人 */
+  /** 该参与人是否有"当前仍可渲染"的视频轨（有媒体流且 live）。
+   *  已 ended 的投屏/摄像头轨挂上 <video> 只会黑屏，优先排除，避免其霸占主视图。 */
+  function hasRenderableVideo(
+    p: { screenTrack?: AttachableTrack; cameraTrack?: AttachableTrack },
+  ): boolean {
+    const live = (t?: AttachableTrack | null) => !!t?.mediaStreamTrack && t.mediaStreamTrack.readyState === 'live'
+    return live(p.screenTrack) || live(p.cameraTrack)
+  }
+
+  function pickVideoFallback(withVideo: MediaParticipant[]): MediaParticipant | null {
+    // 优先在"仍有可渲染画面"的人里挑选；全部失效时退回原列表（主画面对失效轨已另行兜底为占位）
+    const livePool = withVideo.filter((p) => hasRenderableVideo(p))
+    const pool = livePool.length ? livePool : withVideo
+    const standby = standbyIdentity.value
+      ? pool.find((p) => p.identity === standbyIdentity.value)
+      : undefined
+    if (standby) return standby
+    const sharer = pool.find((p) => p.isScreenSharing)
+    if (sharer) return sharer
+    const active = pool.find((p) => p.identity === activeSpeakerId.value)
+    if (active) return active
+    const speaking = pool.find((p) => p.isSpeaking)
+    if (speaking) return speaking
+    return pool.find((p) => !p.isLocal) ?? pool[0] ?? null
+  }
+
+  /** 主画面：优先本地钉选（须仍有画面）→ 稳定回退 → 投屏者 → 开摄像头的说话人 → 任一有画面的人 */
   const speakerParticipant = computed(() => {
     const list = participants.value
     if (!list.length) return null
@@ -244,13 +329,15 @@ export function useLiveKitRoom() {
       const pinned = withVideo.find((p) => p.identity === focusedIdentity.value)
       if (pinned) return pinned
     }
-    const sharer = withVideo.find((p) => p.isScreenSharing)
-    if (sharer) return sharer
-    const active = withVideo.find((p) => p.identity === activeSpeakerId.value)
-    if (active) return active
-    const speaking = withVideo.find((p) => p.isSpeaking)
-    if (speaking) return speaking
-    return withVideo.find((p) => !p.isLocal) ?? withVideo[0] ?? null
+    return pickVideoFallback(withVideo)
+  })
+
+  watch(speakerParticipant, (p) => {
+    if (p && focusedIdentity.value && p.identity === focusedIdentity.value) {
+      standbyIdentity.value = null
+      return
+    }
+    standbyIdentity.value = p?.identity ?? null
   })
 
   watch(hasActiveVideo, (on, wasOn) => {
@@ -263,6 +350,7 @@ export function useLiveKitRoom() {
       }
     } else if (!on) {
       focusedIdentity.value = null
+      standbyIdentity.value = null
     }
   })
 
@@ -271,8 +359,9 @@ export function useLiveKitRoom() {
     (list) => {
       if (!focusedIdentity.value) return
       const pinned = list.find((p) => p.identity === focusedIdentity.value)
-      // 人已离开，或钉选对象已无画面：改钉到仍有画面的人
-      if (!pinned || !(pinned.isCameraEnabled || pinned.isScreenSharing)) {
+      // 仅在钉选对象离会时改钉。关摄像头是临时无画面：主视图先回退到其他人，
+      // 但保留钉选，对方重新开摄像头后应回到主视图（名字与画面一致）。
+      if (!pinned) {
         const next = list.find((p) => p.isCameraEnabled || p.isScreenSharing)
         focusedIdentity.value = next?.identity ?? null
       }
@@ -288,6 +377,7 @@ export function useLiveKitRoom() {
 
   function clearFocus() {
     focusedIdentity.value = null
+    standbyIdentity.value = null
   }
 
   function rebuildParticipants() {
@@ -348,7 +438,7 @@ export function useLiveKitRoom() {
         status.value = 'connected'
         errorMessage.value = ''
       } else if (state === ConnectionState.Reconnecting) status.value = 'reconnecting'
-      else if (state === ConnectionState.Disconnected) status.value = 'disconnected'
+      // Disconnected：交给 RoomEvent.Disconnected，以便区分踢出 / 会议结束等原因
     })
 
     r.on(RoomEvent.ParticipantConnected, refresh)
@@ -382,6 +472,11 @@ export function useLiveKitRoom() {
     r.on(RoomEvent.TrackUnmuted, refresh)
     r.on(RoomEvent.TrackPublished, refresh)
     r.on(RoomEvent.TrackUnpublished, refresh)
+    r.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+      // 自动播放被拦截或投屏后被暂停时尝试恢复
+      if (!r.canPlaybackAudio) return
+      void resumeAudioPlayback()
+    })
     r.on(
       RoomEvent.TrackSubscribed,
       (track: RemoteTrack, pub: RemoteTrackPublication, _participant: RemoteParticipant) => {
@@ -436,8 +531,22 @@ export function useLiveKitRoom() {
         }
       },
     )
-    r.on(RoomEvent.Disconnected, () => {
-      status.value = 'disconnected'
+    r.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
+      if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
+        status.value = 'kicked'
+        errorMessage.value = '你已被主持人移出会议'
+      } else if (
+        reason === DisconnectReason.ROOM_DELETED ||
+        reason === DisconnectReason.ROOM_CLOSED
+      ) {
+        status.value = 'ended'
+        errorMessage.value = '会议已结束'
+      } else if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
+        status.value = 'disconnected'
+        errorMessage.value = '相同账号已在其他设备进入会议，当前连接已断开'
+      } else {
+        status.value = 'disconnected'
+      }
       refresh()
     })
   }
@@ -539,6 +648,27 @@ export function useLiveKitRoom() {
     }
   }
 
+  /** 恢复远端音频播放（投屏/自动播放策略可能暂停 audio 元素） */
+  async function resumeAudioPlayback() {
+    const r = room.value
+    if (r) {
+      try {
+        await r.startAudio()
+      } catch {
+        // 无用户手势时浏览器可能拒绝，忽略
+      }
+    }
+    const audios = document.querySelectorAll<HTMLAudioElement>('audio')
+    for (const el of audios) {
+      try {
+        if (el.paused) await el.play()
+      } catch {
+        // ignore
+      }
+    }
+    await applySpeakerOutput()
+  }
+
   async function connect(
     serverUrl: string,
     token: string,
@@ -551,6 +681,7 @@ export function useLiveKitRoom() {
     chatMessages.value = []
     activeSpeakerId.value = ''
     focusedIdentity.value = null
+    standbyIdentity.value = null
 
     const wantMic = !!opts?.enableMic
     const wantCamera = !!opts?.enableCamera
@@ -599,6 +730,7 @@ export function useLiveKitRoom() {
     participants.value = []
     screenSharing.value = false
     focusedIdentity.value = null
+    standbyIdentity.value = null
     qualityMap.clear()
     if (current) {
       try {
@@ -616,35 +748,25 @@ export function useLiveKitRoom() {
     const local = room.value?.localParticipant
     if (!local) return
     const next = !local.isMicrophoneEnabled
-    try {
-      await local.setMicrophoneEnabled(next)
-      micEnabled.value = local.isMicrophoneEnabled
-      rebuildParticipants()
-      if (local.isMicrophoneEnabled) void refreshDevices()
-    } catch (err) {
-      errorMessage.value = mediaErrorMessage(err)
-      throw err
-    }
+    await local.setMicrophoneEnabled(next)
+    micEnabled.value = local.isMicrophoneEnabled
+    rebuildParticipants()
+    if (local.isMicrophoneEnabled) void refreshDevices()
   }
 
   async function toggleCamera() {
     const local = room.value?.localParticipant
     if (!local) return
     const next = !local.isCameraEnabled
-    try {
-      // 摄像头与屏幕共享互斥：开摄像头前先停共享
-      if (next && local.isScreenShareEnabled) {
-        await local.setScreenShareEnabled(false)
-      }
-      await local.setCameraEnabled(next)
-      cameraEnabled.value = local.isCameraEnabled
-      screenSharing.value = local.isScreenShareEnabled
-      rebuildParticipants()
-      if (local.isCameraEnabled) void refreshDevices()
-    } catch (err) {
-      errorMessage.value = mediaErrorMessage(err)
-      throw err
+    // 摄像头与屏幕共享互斥：开摄像头前先停共享
+    if (next && local.isScreenShareEnabled) {
+      await local.setScreenShareEnabled(false)
     }
+    await local.setCameraEnabled(next)
+    cameraEnabled.value = local.isCameraEnabled
+    screenSharing.value = local.isScreenShareEnabled
+    rebuildParticipants()
+    if (local.isCameraEnabled) void refreshDevices()
   }
 
   async function toggleScreenShare() {
@@ -652,6 +774,10 @@ export function useLiveKitRoom() {
     if (!local) return
     const next = !local.isScreenShareEnabled
     const cameraWasOn = local.isCameraEnabled
+    // 移动端没有 getDisplayMedia：直接给出明确提示，避免 LiveKit 抛原始错误
+    if (next && !isScreenShareSupported()) {
+      throw new Error('当前设备或浏览器不支持屏幕共享，请使用电脑端浏览器')
+    }
     try {
       if (next) {
         // 摄像头与屏幕共享互斥：开共享前先关摄像头
@@ -683,6 +809,11 @@ export function useLiveKitRoom() {
       screenSharing.value = local.isScreenShareEnabled
       cameraEnabled.value = local.isCameraEnabled
       rebuildParticipants()
+      // 开启投屏后布局切到演讲者视图，浏览器也可能暂停已有 audio，强制恢复远端声音
+      if (next && local.isScreenShareEnabled) {
+        await nextTick()
+        await resumeAudioPlayback()
+      }
     } catch (err) {
       // 用户取消投屏选择器：不提示错误，并恢复此前关闭的摄像头
       if (next && isDisplayMediaCancelled(err)) {
@@ -698,7 +829,6 @@ export function useLiveKitRoom() {
         rebuildParticipants()
         return
       }
-      errorMessage.value = mediaErrorMessage(err)
       throw err
     }
   }
@@ -791,6 +921,7 @@ export function useLiveKitRoom() {
     switchMic,
     switchCamera,
     switchSpeaker,
+    resumeAudioPlayback,
     focusParticipant,
     clearFocus,
   }

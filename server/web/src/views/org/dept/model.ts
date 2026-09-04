@@ -47,6 +47,12 @@ export function newState(state: State | Record<string, any> | null): State {
 
 // 表单验证规则
 export const rules: FormRules = {
+  name: {
+    required: true,
+    trigger: ['blur', 'input'],
+    type: 'string',
+    message: '请输入部门名称',
+  },
   email: {
     required: false,
     trigger: ['blur', 'input'],

@@ -42,6 +42,7 @@ import {
 } from '@/api/conference'
 import { clearAuth, displayName, getAuth, setAuth, subscribeAuth } from '@/stores/auth'
 import { ApiError } from '@/utils/request'
+import { writeMeetingSession } from '@/utils/meetingSession'
 
 type FilterKey = 'all' | 'ongoing' | 'host' | 'joined'
 
@@ -400,25 +401,22 @@ async function enterMeeting(m: MeetingItem) {
   const nick = displayName() || '用户'
   try {
     const data = await createToken({ room: m.roomName, nickname: nick })
-    sessionStorage.setItem(
-      'vc.session',
-      JSON.stringify({
-        serverUrl: data.serverUrl,
-        token: data.token,
-        room: data.room,
-        title: data.title || m.title,
-        identity: data.identity,
-        nickname: data.nickname,
-        expiresAt: data.expiresAt,
-        isHost: !!data.isHost,
-        enableMic: false,
-        enableCamera: false,
-        fromShare: false,
-        shareCode: m.shareCode,
-        recordEnabled: !!data.recordEnabled,
-        recordingActive: !!data.recordingActive,
-      }),
-    )
+    writeMeetingSession({
+      serverUrl: data.serverUrl,
+      token: data.token,
+      room: data.room,
+      title: data.title || m.title,
+      identity: data.identity,
+      nickname: data.nickname,
+      expiresAt: data.expiresAt,
+      isHost: !!data.isHost,
+      enableMic: false,
+      enableCamera: false,
+      fromShare: false,
+      shareCode: m.shareCode,
+      recordEnabled: !!data.recordEnabled,
+      recordingActive: !!data.recordingActive,
+    })
     await router.push({ name: 'room', params: { room: data.room } })
   } catch (err) {
     message.error(err instanceof ApiError ? err.message : '进入会议失败')
@@ -612,8 +610,9 @@ function formatInviteTime(m: MeetingItem) {
 
 function formatInviteTimeText(m: MeetingItem) {
   const t = formatInviteTime(m)
+  const label = isEnded(m) ? '实际时长' : '预计时长'
   if (!t.duration) return `${t.date} ${t.range}`
-  return `${t.date} ${t.range}，预计时长 ${t.duration}`
+  return `${t.date} ${t.range}，${label} ${t.duration}`
 }
 
 function isOngoing(m: MeetingItem) {

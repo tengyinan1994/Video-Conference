@@ -71,6 +71,11 @@ type RoomMuteAllModel struct {
 	MutedCount int `json:"mutedCount" dc:"成功静音的麦克风轨数量"`
 }
 
+// RoomUnmuteAllModel 取消全员静音结果
+type RoomUnmuteAllModel struct {
+	UnmutedCount int `json:"unmutedCount" dc:"成功取消静音的麦克风轨数量"`
+}
+
 // RoomClaimHostInp 进房后认领/同步主持人
 type RoomClaimHostInp struct {
 	Room              string `json:"room" v:"required#房间名不能为空" dc:"房间名"`

@@ -5,14 +5,14 @@
       "name": "LiveKit (本机 7880, IP 自动)",
       "type": "node-terminal",
       "request": "launch",
-      "command": "bash \"${workspaceFolder}/deploy/dev-livekit.sh\"",
+      "command": "bash \"${workspaceFolder}/deploy/dev/dev-livekit.sh\"",
       "cwd": "${workspaceFolder}"
     },
     {
       "name": "LiveKit (Compose 17880)",
       "type": "node-terminal",
       "request": "launch",
-      "command": "docker compose -f \"${workspaceFolder}/deploy/docker-compose.yml\" --env-file \"${workspaceFolder}/deploy/.env\" up livekit",
+      "command": "echo '请使用 deploy/dev/dev-livekit.sh 或 deploy/test 全栈部署'",
       "cwd": "${workspaceFolder}"
     },
     {

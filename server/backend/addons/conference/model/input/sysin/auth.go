@@ -32,6 +32,7 @@ func (in *AuthLoginInp) Filter(ctx context.Context) (err error) {
 type AuthLoginModel struct {
 	Id       int64  `json:"id"`
 	Username string `json:"username"`
+	RealName string `json:"realName"`
 	Token    string `json:"token"`
 	Expires  int64  `json:"expires"`
 }

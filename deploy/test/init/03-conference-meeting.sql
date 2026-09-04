@@ -1,4 +1,6 @@
 -- 业务会议室表（不随空房销毁；主持人结束或 end_at+2h 后标记 ended；建错用硬删）
+SET NAMES utf8mb4;
+
 CREATE TABLE IF NOT EXISTS `hg_addon_conference_meeting` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
   `title` varchar(128) NOT NULL DEFAULT '' COMMENT '会议名称',

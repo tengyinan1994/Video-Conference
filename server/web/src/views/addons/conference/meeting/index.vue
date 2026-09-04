@@ -24,6 +24,7 @@
         :resizeHeightOffset="-10000"
         :checked-row-keys="checkedIds"
         @update:checked-row-keys="handleOnCheckedRow"
+        @fetch-success="handleFetchSuccess"
       >
         <template #tableTitle>
           <n-button
@@ -127,6 +128,11 @@
     checkedIds.value = rowKeys;
   }
 
+  // 数据刷新/翻页/搜索后重置勾选，避免残留其它页的 id 导致批量删除数量不准、误删
+  function handleFetchSuccess() {
+    checkedIds.value = [];
+  }
+
   function reloadTable() {
     actionRef.value?.reload();
   }
@@ -155,17 +161,22 @@
   }
 
   function handleBatchDelete() {
-    if (checkedIds.value.length < 1) {
+    // 兜底：仅删除当前表格可见行的 id，避免残留的其它页勾选被一并删除
+    const rows = actionRef.value?.getDataSource?.() || [];
+    const pageIds = new Set(rows.map((row) => row.id));
+    const ids = checkedIds.value.filter((id) => pageIds.has(id));
+    if (ids.length < 1) {
+      checkedIds.value = [];
       message.error('请至少选择一项要删除的数据');
       return;
     }
     dialog.warning({
       title: '警告',
-      content: `确定批量删除选中的 ${checkedIds.value.length} 场会议？删除后不可恢复。`,
+      content: `确定批量删除选中的 ${ids.length} 场会议？删除后不可恢复。`,
       positiveText: '确定',
       negativeText: '取消',
       onPositiveClick: () => {
-        Delete({ id: checkedIds.value }).then(() => {
+        Delete({ id: ids }).then(() => {
           checkedIds.value = [];
           message.success('删除成功');
           reloadTable();

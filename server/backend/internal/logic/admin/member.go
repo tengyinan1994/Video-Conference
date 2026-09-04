@@ -466,6 +466,12 @@ func (s *sAdminMember) Edit(ctx context.Context, in *adminin.MemberEditInp) (err
 		return
 	}
 
+	// 备注长度校验：超出数据库字段长度会直接导致保存失败
+	if gstr.LenRune(in.Remark) > consts.MemberRemarkMaxLen {
+		err = gerror.Newf("备注长度不能超过%d个字符", consts.MemberRemarkMaxLen)
+		return
+	}
+
 	cols := dao.AdminMember.Columns()
 	err = s.VerifyUnique(ctx, &adminin.VerifyUniqueInp{
 		Id: in.Id,
@@ -506,8 +512,9 @@ func (s *sAdminMember) Edit(ctx context.Context, in *adminin.MemberEditInp) (err
 
 	// 修改
 	if in.Id > 0 {
-		if s.VerifySuperId(ctx, in.Id) {
-			err = gerror.New("超管账号禁止编辑！")
+		// 仅锁定内置超管(id=1)；其它超管账号允许改用户名等资料
+		if in.Id == 1 {
+			err = gerror.New("内置超管账号禁止编辑！")
 			return
 		}
 

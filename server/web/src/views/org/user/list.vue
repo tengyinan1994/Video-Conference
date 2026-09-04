@@ -80,7 +80,7 @@
             </n-form-item>
           </n-gi>
           <n-gi>
-            <n-form-item label="密码" path="password">
+            <n-form-item label="密码" path="password" :required="formParams?.id === 0">
               <n-input
                 type="password"
                 :placeholder="formParams.id === 0 ? '请输入' : '不填则不修改'"
@@ -181,7 +181,13 @@
         </n-grid>
 
         <n-form-item label="备注" path="remark">
-          <n-input type="textarea" placeholder="请输入备注" v-model:value="formParams.remark" />
+          <n-input
+            type="textarea"
+            placeholder="请输入备注"
+            v-model:value="formParams.remark"
+            :maxlength="255"
+            :show-count="true"
+          />
         </n-form-item>
       </n-form>
 
@@ -206,6 +212,7 @@
   import { PlusOutlined, DeleteOutlined } from '@vicons/antd';
   import { adaModalWidth, adaTableScrollX } from '@/utils/hotgo';
   import { getRandomString } from '@/utils/charset';
+  import { isStrongPassword } from '@/utils/validateUtil';
   import { cloneDeep } from 'lodash-es';
   import {
     register,
@@ -229,6 +236,41 @@
       required: true,
       trigger: ['blur', 'input'],
       message: '请输入用户名',
+    },
+    password: {
+      trigger: ['blur', 'input'],
+      validator: (_rule, value) => {
+        // 编辑时密码可不填（不填则不修改），仅在新增时校验必填
+        if (formParams.value?.id === 0 && !value) {
+          return new Error('请输入密码');
+        }
+        // 填写了密码（新增或编辑）则强制进行强密码校验
+        if (value && !isStrongPassword(value)) {
+          return new Error('密码强度不足：需8-32位，且需同时包含大写字母、小写字母和数字');
+        }
+        return true;
+      },
+    },
+    deptId: {
+      required: true,
+      trigger: ['blur', 'change'],
+      validator: (_rule, value) => {
+        const empty = value === null || value === undefined || value === '' || Number.isNaN(value);
+        return empty ? new Error('请选择所属部门') : true;
+      },
+    },
+    roleId: {
+      required: true,
+      trigger: ['blur', 'change'],
+      validator: (_rule, value) => {
+        const empty = value === null || value === undefined || value === '' || Number.isNaN(value);
+        return empty ? new Error('请选择绑定角色') : true;
+      },
+    },
+    remark: {
+      max: 255,
+      trigger: ['blur', 'input'],
+      message: '备注长度不能超过255个字符',
     },
   };
 

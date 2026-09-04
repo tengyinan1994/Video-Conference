@@ -1,5 +1,17 @@
 import { FormItemRule } from 'naive-ui';
 import * as yaml from 'js-yaml';
+
+/**
+ * @description 强密码策略校验
+ * 要求：8-32 位，必须同时包含大写字母、小写字母和数字，允许特殊符号，不允许空白字符。
+ */
+export function isStrongPassword(value: string): boolean {
+  if (!value) {
+    return false;
+  }
+  return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)\S{8,32}$/.test(value);
+}
+
 /**
  * @description 表单验证封装
  */
@@ -83,6 +95,19 @@ export const validate = {
       callback(new Error('请输入密码'));
     } else if (!regPassword.test(value)) {
       callback(new Error('密码格式错误！必须包含6-18为字母和数字'));
+    } else {
+      callback();
+    }
+    return true;
+  },
+  // 强密码：8-32位，需同时包含大写字母、小写字母和数字，允许特殊符号
+  strongPassword(rule: FormItemRule, value: any, callback: Function): boolean | Error {
+    if (!value && !rule.required) {
+      callback();
+    } else if (!value) {
+      callback(new Error('请输入密码'));
+    } else if (!isStrongPassword(value)) {
+      callback(new Error('密码强度不足：需8-32位，且需同时包含大写字母、小写字母和数字'));
     } else {
       callback();
     }

@@ -1,5 +1,5 @@
 # Docker 部署用配置模板：
-#   cp deploy/config/config.example.yaml deploy/config/config.yaml
+#   cp deploy/test/config/config.example.yaml deploy/test/config/config.yaml
 # 已将 database / redis 主机改为 compose 服务名 mysql、redis。
 # livekit.url 必须改成浏览器可达的 ws://宿主机IP:17880（与 .env LIVEKIT_SIGNAL_PORT 一致）。
 
@@ -8,9 +8,9 @@ system:
   # 应用名称
   appName: "hotgo"
   # debug开关，开启后接口出现错误时会向前端输出堆栈信息，可选：false|true，默认为true
-  debug: true
+  debug: false
   # gf运行模式，可选：not-set|develop|testing|staging|product。product模式下后台【开发工具】菜单自动隐藏
-  mode: "develop"
+  mode: "product"
   # IP归属地解析方法，可选：cz88|whois，默认为whois
   ipMethod: "whois"
   # 是否为演示系统，可选：false|true
@@ -157,6 +157,8 @@ router:
       "/provinces/select",              # 动态省市区选项
       "/provinces/cityLabel",           # 动态解析省市区名称
       "/member/option",                 # 用户选项
+      "/conference/recording/download", # 录制下载（登录即可，走 HTTPS 代理）
+      "/conference/recording/play",     # 录制回放（登录即可，走 HTTPS 代理）
     ]
   # 接口
   api:
@@ -240,7 +242,7 @@ database:
     stdout: true
   default:
     link: "mysql:video_conference:hg123456.@tcp(mysql:3306)/video_conference?loc=Local&parseTime=true&charset=utf8mb4"
-    debug: true
+    debug: false
     Prefix: "hg_"
 
 
@@ -311,7 +313,7 @@ hggen:
 # 本机/局域网：改成 ws://<宿主机局域网IP>:17880（宿主机映射口，非容器内 7880）
 # apiUrl：服务端调 RoomService/Egress 的 HTTP 地址；compose 内建议 http://livekit:7880，空则从 url 推导
 livekit:
-  url: "ws://127.0.0.1:17880"
+  url: "ws://125.211.217.19:17880"
   apiUrl: "http://livekit:7880"
   apiKey: "devkey"
   apiSecret: "secretsecretsecretsecretsecret12"
@@ -335,6 +337,8 @@ recording:
   # height: 1440
   # framerate: 60
   # videoBitrate: 12000
-  # 浏览器直链回放（可选）。客户端默认走 HotGo /recording/play 代理，不依赖此项。
-  publicEndpoint: ""
+  # 管理后台回放/下载直链用（浏览器可达）。必须填公网/宿主机映射口，不能是 rustfs 容器名。
+  # 客户端默认走 HotGo /recording/play 代理，可不依赖此项；后台列表依赖此项。
+  # 与 .env 中 PUBLIC_HOST + RUSTFS_PORT 对齐，例如 http://125.211.217.19:17886
+  publicEndpoint: "http://125.211.217.19:17886"
 

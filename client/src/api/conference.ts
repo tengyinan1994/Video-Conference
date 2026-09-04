@@ -19,6 +19,10 @@ export interface MuteAllResult {
   mutedCount: number
 }
 
+export interface UnmuteAllResult {
+  unmutedCount: number
+}
+
 export interface MeetingItem {
   id: number
   title: string
@@ -85,6 +89,13 @@ export function kickParticipant(room: string, targetIdentity: string, requesterI
 
 export function muteAllParticipants(room: string, requesterIdentity: string) {
   return request<MuteAllResult>('/api/conference/room/muteAll', {
+    method: 'POST',
+    body: JSON.stringify({ room, requesterIdentity }),
+  })
+}
+
+export function unmuteAllParticipants(room: string, requesterIdentity: string) {
+  return request<UnmuteAllResult>('/api/conference/room/unmuteAll', {
     method: 'POST',
     body: JSON.stringify({ room, requesterIdentity }),
   })

@@ -161,6 +161,7 @@
   import { useRouter, useRoute } from 'vue-router';
   import { useSendCode } from '@/hooks/common';
   import { adaModalWidth } from '@/utils/hotgo';
+  import { validate } from '@/utils/validateUtil';
   import {
     updateMemberPwd,
     updateMemberMobile,
@@ -174,10 +175,15 @@
   const { sendLabel, isCounting, loading: sendLoading, activateSend } = useSendCode();
   const userStore = useUserStore();
   const rules = {
-    basicName: {
+    oldPassword: {
       required: true,
-      message: '请输入网站名称',
-      trigger: 'blur',
+      message: '请输入当前密码',
+      trigger: ['blur', 'input'],
+    },
+    newPassword: {
+      required: true,
+      validator: validate.strongPassword,
+      trigger: ['blur', 'input'],
     },
   };
 

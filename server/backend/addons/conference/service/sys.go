@@ -17,6 +17,7 @@ type (
 	ISysRoom interface {
 		Kick(ctx context.Context, in *sysin.RoomKickInp) (err error)
 		MuteAll(ctx context.Context, in *sysin.RoomMuteAllInp) (res *sysin.RoomMuteAllModel, err error)
+		UnmuteAll(ctx context.Context, in *sysin.RoomMuteAllInp) (res *sysin.RoomUnmuteAllModel, err error)
 		ClaimHost(ctx context.Context, in *sysin.RoomClaimHostInp) (res *sysin.RoomClaimHostModel, err error)
 	}
 	ISysRecording interface {

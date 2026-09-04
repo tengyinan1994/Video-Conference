@@ -67,6 +67,7 @@ async function onSubmit() {
     setAuth({
       id: data.id,
       username: data.username,
+      realName: data.realName,
       token: data.token,
       // HotGo 返回的 expires 是有效期秒数（TTL），不是时间戳
       expiresAt: Math.floor(Date.now() / 1000) + (data.expires || 7 * 24 * 3600),
@@ -387,6 +388,21 @@ onMounted(() => {
 .login-form :deep(.ant-input-password-icon),
 .login-form :deep(.ant-input-clear-icon) {
   color: rgba(226, 232, 240, 0.72) !important;
+}
+
+/* 覆盖浏览器自动填充（autofill）样式：autofill 会强制给 input 铺一层亮色背景，
+   而此处文字是浅色，导致“浅底白字”看不清输入内容。
+   用内阴影框把背景拉回玻璃暗色，并强制文字与光标为浅色，保证可读。 */
+.login-form :deep(.ant-input-affix-wrapper > input.ant-input:-webkit-autofill),
+.login-form :deep(.ant-input-affix-wrapper > input.ant-input:-webkit-autofill:hover),
+.login-form :deep(.ant-input-affix-wrapper > input.ant-input:-webkit-autofill:focus),
+.login-form :deep(.ant-input-affix-wrapper > input.ant-input:-webkit-autofill:active) {
+  box-shadow: 0 0 0 1000px #2f3947 inset !important;
+  -webkit-box-shadow: 0 0 0 1000px #2f3947 inset !important;
+  -webkit-text-fill-color: rgba(248, 250, 252, 0.95) !important;
+  caret-color: rgba(248, 250, 252, 0.95) !important;
+  background-color: transparent !important;
+  transition: background-color 999999s ease-in-out 0s;
 }
 
 .captcha-row {

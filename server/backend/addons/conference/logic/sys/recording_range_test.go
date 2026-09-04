@@ -61,6 +61,20 @@ func TestApplyPublicEndpoint(t *testing.T) {
 	}
 }
 
+func TestRecordingPresignEndpoint(t *testing.T) {
+	cfg := &model.RecordingConfig{
+		S3:             model.RecordingS3{Endpoint: "http://rustfs:9000"},
+		PublicEndpoint: "http://125.211.217.19:17886",
+	}
+	if got := recordingPresignEndpoint(cfg); got != "http://125.211.217.19:17886" {
+		t.Fatalf("want publicEndpoint, got %s", got)
+	}
+	cfg.PublicEndpoint = ""
+	if got := recordingPresignEndpoint(cfg); got != "http://rustfs:9000" {
+		t.Fatalf("want s3.endpoint fallback, got %s", got)
+	}
+}
+
 func TestRecordingEncodingDefaults(t *testing.T) {
 	opt := recordingEncoding(nil)
 	if opt.Width != 2560 || opt.Height != 1440 || opt.Framerate != 60 || opt.VideoBitrate != 12000 {

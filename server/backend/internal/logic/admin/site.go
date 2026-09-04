@@ -248,6 +248,7 @@ func (s *sAdminSite) handleLogin(ctx context.Context, mb *entity.AdminMember) (r
 
 	res = &adminin.LoginModel{
 		Username: user.Username,
+		RealName: user.RealName,
 		Id:       user.Id,
 		Token:    lt,
 		Expires:  expires,

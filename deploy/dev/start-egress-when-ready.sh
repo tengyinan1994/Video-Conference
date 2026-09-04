@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# 本机开发：等 livekit/egress 镜像就绪后启动录制旁路（RustFS 需已在跑，宿主口 17886）
-# 由 deploy/docker-compose.dev.yml 管理开发版 Egress（vc-egress-dev）
+# 等 egress 镜像就绪后启动开发版录制旁路（需 RustFS 已起，宿主 17886）
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 echo "waiting for image livekit/egress:latest ..."
@@ -11,7 +10,6 @@ for i in $(seq 1 180); do
     echo "image ready"
     break
   fi
-  # 也接受 dao cloud 拉下来的 tag
   if docker image inspect docker.m.daocloud.io/livekit/egress:latest >/dev/null 2>&1; then
     docker tag docker.m.daocloud.io/livekit/egress:latest livekit/egress:latest
     echo "tagged from daocloud"
@@ -24,14 +22,11 @@ for i in $(seq 1 180); do
   fi
 done
 
-# 开发版 Egress 由 deploy/docker-compose.dev.yml 管理（容器 vc-egress-dev），
-# 连宿主 7880 的 livekit-dev；与主 compose 里部署版 egress 相互独立。
-# 旧版用 docker run 起的 vc-egress（若还在）先清掉，避免与新容器并存。
 docker rm -f vc-egress >/dev/null 2>&1 || true
 
-docker compose -f deploy/docker-compose.dev.yml up -d egress
+docker compose -f deploy/dev/docker-compose.yml --env-file deploy/dev/.env up -d egress
 
 sleep 2
-docker compose -f deploy/docker-compose.dev.yml ps
+docker compose -f deploy/dev/docker-compose.yml ps
 docker logs vc-egress-dev 2>&1 | tail -20
 echo "egress started"

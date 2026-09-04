@@ -5,9 +5,11 @@ import { Button, Form, Input, Switch, message } from 'ant-design-vue'
 import { UserOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import { fetchMe } from '@/api/auth'
 import { createToken, shareView, type MeetingShareView } from '@/api/conference'
-import { displayName, isLoggedIn } from '@/stores/auth'
+import { displayName, getAuth, isLoggedIn, setAuth } from '@/stores/auth'
 import { ApiError } from '@/utils/request'
+import { writeMeetingSession } from '@/utils/meetingSession'
 import loginBg from '@/assets/images/login-bg.png'
 import logoImg from '@/assets/images/logo.png'
 
@@ -38,13 +40,30 @@ const meetingTime = computed(() => {
   return `${date} ${range}`
 })
 
+/** 刷新登录用户姓名：登录响应未必带 realName，进会前强制拉一次，避免显示成用户名 */
+async function refreshMe() {
+  if (!isLoggedIn()) return
+  try {
+    const me = await fetchMe()
+    const auth = getAuth()
+    if (auth) {
+      setAuth({ ...auth, username: me.username, realName: me.realName, id: me.id })
+    }
+  } catch {
+    // 拉取失败时保持现有 auth，昵称回退到 displayName()
+  }
+}
+
 async function loadInfo() {
   loadingInfo.value = true
   infoError.value = ''
   try {
     info.value = await shareView(shareCode.value)
-    if (loggedIn.value && !form.nickname) {
-      form.nickname = displayName()
+    if (loggedIn.value) {
+      await refreshMe()
+      if (!form.nickname) {
+        form.nickname = displayName()
+      }
     }
   } catch (err) {
     info.value = null
@@ -69,25 +88,22 @@ async function onJoin() {
       shareCode: shareCode.value,
       nickname: form.nickname.trim(),
     })
-    sessionStorage.setItem(
-      'vc.session',
-      JSON.stringify({
-        serverUrl: data.serverUrl,
-        token: data.token,
-        room: data.room,
-        title: data.title || info.value?.title,
-        identity: data.identity,
-        nickname: data.nickname,
-        expiresAt: data.expiresAt,
-        isHost: !!data.isHost,
-        enableMic: form.enableMic,
-        enableCamera: form.enableCamera,
-        fromShare: true,
-        shareCode: shareCode.value,
-        recordEnabled: !!data.recordEnabled,
-        recordingActive: !!data.recordingActive,
-      }),
-    )
+    writeMeetingSession({
+      serverUrl: data.serverUrl,
+      token: data.token,
+      room: data.room,
+      title: data.title || info.value?.title,
+      identity: data.identity,
+      nickname: data.nickname,
+      expiresAt: data.expiresAt,
+      isHost: !!data.isHost,
+      enableMic: form.enableMic,
+      enableCamera: form.enableCamera,
+      fromShare: true,
+      shareCode: shareCode.value,
+      recordEnabled: !!data.recordEnabled,
+      recordingActive: !!data.recordingActive,
+    })
     await router.push({ name: 'room', params: { room: data.room } })
   } catch (err) {
     const msg = err instanceof ApiError ? err.message : '获取进房凭证失败'

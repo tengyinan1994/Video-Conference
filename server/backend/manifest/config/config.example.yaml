@@ -152,6 +152,8 @@ router:
       "/provinces/select",              # 动态省市区选项
       "/provinces/cityLabel",           # 动态解析省市区名称
       "/member/option",                 # 用户选项
+      "/conference/recording/download", # 录制下载（登录即可，走 HTTPS 代理）
+      "/conference/recording/play",     # 录制回放（登录即可，走 HTTPS 代理）
     ]
   # 接口
   api:
@@ -329,4 +331,4 @@ recording:
   # height: 1440
   # framerate: 60
   # videoBitrate: 12000
-  publicEndpoint: ""
+  publicEndpoint: ""  # 管理后台回放直链：填浏览器可达的 RustFS 地址（如 http://公网IP:17886）；不可用容器名 rustfs

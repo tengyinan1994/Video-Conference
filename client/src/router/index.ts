@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { isLoggedIn } from '@/stores/auth'
+import { isLoggedIn, subscribeAuth } from '@/stores/auth'
 import JoinView from '@/views/JoinView.vue'
 import LobbyView from '@/views/LobbyView.vue'
 import LoginView from '@/views/LoginView.vue'
@@ -32,6 +32,24 @@ router.beforeEach((to) => {
     return { name: 'lobby' }
   }
   return true
+})
+
+// 登录态被清除时（401/61，例如后台删除或禁用了当前账号），
+// 主动跳回登录页，避免停留在受保护路由上出现空白/无限转圈。
+// 注：清除登录态本身不会触发导航，只有在这里监听变化才能及时回到登录页。
+let redirectingToLogin = false
+
+subscribeAuth(() => {
+  if (isLoggedIn() || redirectingToLogin) return
+  const route = router.currentRoute.value
+  const needsAuth = route.matched.some((r) => r.meta.requiresAuth)
+  if (!needsAuth) return
+  redirectingToLogin = true
+  void router
+    .replace({ name: 'login', query: { redirect: route.fullPath } })
+    .finally(() => {
+      redirectingToLogin = false
+    })
 })
 
 export default router

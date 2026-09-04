@@ -25,6 +25,7 @@ export const defaultState = {
   phone: '',
   sort: 0,
   status: 1,
+  remark: '',
   createdAt: '',
   updatedAt: '',
 };
@@ -44,6 +45,7 @@ export interface State {
   phone: string;
   sort: number;
   status: number;
+  remark: string;
   createdAt: string;
   updatedAt: string;
 }

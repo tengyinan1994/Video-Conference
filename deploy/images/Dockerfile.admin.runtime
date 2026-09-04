@@ -1,0 +1,6 @@
+# 管理后台 HTTPS 网关（反代 HotGo，无静态前端构建物）
+FROM nginx:alpine
+COPY deploy/images/certs/server.crt /etc/nginx/certs/server.crt
+COPY deploy/images/certs/server.key /etc/nginx/certs/server.key
+COPY deploy/images/nginx-admin.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80 443

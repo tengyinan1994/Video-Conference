@@ -5,10 +5,10 @@ export enum PageEnum {
   //重定向
   REDIRECT = '/redirect',
   REDIRECT_NAME = 'Redirect',
-  // 首页（组织管理 → 后台用户）
-  BASE_HOME = '/org/user',
+  // 首页（会议管理 → 会议列表）
+  BASE_HOME = '/conference/meeting',
   //首页跳转默认路由
-  BASE_HOME_REDIRECT = '/org/user',
+  BASE_HOME_REDIRECT = '/conference/meeting',
   // 错误
   ERROR_PAGE_NAME = 'ErrorPage',
 }

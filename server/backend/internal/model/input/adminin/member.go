@@ -75,13 +75,29 @@ type MemberUpdateProfileInp struct {
 type MemberUpdatePwdInp struct {
 	Id          int64  `json:"id" dc:"用户ID"`
 	OldPassword string `json:"oldPassword" v:"required#原密码不能为空"  dc:"原密码"`
-	NewPassword string `json:"newPassword" v:"required|length:6,16#新密码不能为空#新密码需在6~16之间"  dc:"新密码"`
+	NewPassword string `json:"newPassword" v:"required#新密码不能为空"  dc:"新密码"`
+}
+
+// Filter 修改登录密码校验
+func (in *MemberUpdatePwdInp) Filter(ctx context.Context) (err error) {
+	if err = isStrongPassword(in.NewPassword); err != nil {
+		return
+	}
+	return
 }
 
 // MemberResetPwdInp 重置密码
 type MemberResetPwdInp struct {
 	Password string `json:"password" v:"required#密码不能为空"  dc:"密码"`
 	Id       int64  `json:"id" dc:"用户ID"`
+}
+
+// Filter 重置密码校验
+func (in *MemberResetPwdInp) Filter(ctx context.Context) (err error) {
+	if err = isStrongPassword(in.Password); err != nil {
+		return
+	}
+	return
 }
 
 type LoginMemberInfoModel struct {
@@ -146,13 +162,51 @@ type MemberAddInp struct {
 }
 
 func (in *MemberEditInp) Filter(ctx context.Context) (err error) {
+	// 新增用户（Id<1）必须设置密码；编辑用户时填写了密码则强制校验（不填则不修改）
 	if in.Id < 1 || in.Password != "" {
-		if err := g.Validator().
-			Rules("length:6,16").
-			Messages("新密码不能为空#新密码需在6~16之间").
-			Data(in.Password).Run(ctx); err != nil {
-			return err.Current()
+		if err = isStrongPassword(in.Password); err != nil {
+			return
 		}
+	}
+	return
+}
+
+// isStrongPassword 强密码校验：8-32位，必须同时包含大写字母、小写字母和数字，不允许空白字符。
+// 注意：Go 的 RE2 正则不支持前瞻断言，因此用逐字符遍历判断强度。
+func isStrongPassword(pwd string) (err error) {
+	if pwd == "" {
+		return gerror.New("新密码不能为空")
+	}
+
+	runes := []rune(pwd)
+	if len(runes) < 8 || len(runes) > 32 {
+		return gerror.New("新密码需在8~32之间")
+	}
+
+	var (
+		hasUpper bool
+		hasLower bool
+		hasDigit bool
+		hasSpace bool
+	)
+	for _, r := range runes {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			hasSpace = true
+		}
+	}
+
+	if hasSpace {
+		return gerror.New("新密码不能包含空白字符")
+	}
+	if !hasUpper || !hasLower || !hasDigit {
+		return gerror.New("新密码强度不足：需同时包含大写字母、小写字母和数字")
 	}
 	return
 }

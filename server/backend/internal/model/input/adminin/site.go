@@ -2,7 +2,6 @@ package adminin
 
 import (
 	"context"
-	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gtime"
 	"hotgo/utility/simple"
 )
@@ -23,7 +22,8 @@ func (in *RegisterInp) Filter(ctx context.Context) (err error) {
 		return err
 	}
 
-	if err = g.Validator().Data(password).Rules("password").Messages("密码长度在6~18之间").Run(ctx); err != nil {
+	// 强密码校验
+	if err = isStrongPassword(password); err != nil {
 		return
 	}
 
@@ -35,6 +35,7 @@ func (in *RegisterInp) Filter(ctx context.Context) (err error) {
 type LoginModel struct {
 	Id       int64  `json:"id"              dc:"用户ID"`
 	Username string `json:"username"        dc:"用户名"`
+	RealName string `json:"realName"        dc:"姓名"`
 	Token    string `json:"token"           dc:"登录token"`
 	Expires  int64  `json:"expires"         dc:"登录有效期"`
 }

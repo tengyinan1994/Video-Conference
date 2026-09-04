@@ -1,6 +1,7 @@
 -- hotgo 会议管理菜单权限 SQL
 -- Date: 2026-08-11
 -- 管理员可查看全部会议，并对任意状态会议进行编辑/结束/删除
+SET NAMES utf8mb4;
 
 SET @now := NOW();
 

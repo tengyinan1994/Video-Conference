@@ -5,6 +5,7 @@ import { defRangeShortcuts } from '@/utils/dateUtil';
 import { renderOptionTag } from '@/utils';
 import { useDictStore } from '@/store/modules/dict';
 import type { FormRules } from 'naive-ui/es/form/src/interface';
+import { recordingProxyUrl } from '@/api/addons/conference/meeting';
 
 const dict = useDictStore();
 
@@ -119,6 +120,24 @@ export const schemas = ref<FormSchema[]>([
   },
 ]);
 
+/** 录制分段状态 → 中文文案 */
+function recordingStatusText(status: string): string {
+  switch (status) {
+    case 'starting':
+      return '开始中';
+    case 'active':
+      return '录制中';
+    case 'stopping':
+      return '停止中';
+    case 'complete':
+      return '无文件';
+    case 'failed':
+      return '失败';
+    default:
+      return status || '处理中';
+  }
+}
+
 export const columns = [
   {
     title: 'ID',
@@ -176,36 +195,29 @@ export const columns = [
         'div',
         { style: 'display:flex;flex-wrap:wrap;gap:6px 10px;' },
         segs.map((seg) => {
-          if (seg.playUrl || seg.downloadUrl) {
-            const play = seg.playUrl
-              ? h(
-                  'a',
-                  {
-                    href: seg.playUrl,
-                    target: '_blank',
-                    rel: 'noopener',
-                    style: 'margin-right:8px',
-                  },
-                  `第${seg.seq}段回放`
-                )
-              : null;
+          if (seg.status === 'complete' && seg.id) {
+            const play = h(
+              'a',
+              {
+                href: recordingProxyUrl('play', seg.id),
+                target: '_blank',
+                rel: 'noopener',
+                style: 'margin-right:8px',
+              },
+              `第${seg.seq}段回放`
+            );
             const download = h(
               'a',
               {
-                href: seg.downloadUrl || seg.playUrl,
+                href: recordingProxyUrl('download', seg.id),
                 download: `recording-${row.id}-${seg.seq}.mp4`,
                 rel: 'noopener',
               },
-              play ? '下载' : `第${seg.seq}段下载`
+              '下载'
             );
-            return h('span', { style: 'margin-right:10px' }, [play, download].filter(Boolean));
+            return h('span', { style: 'margin-right:10px' }, [play, download]);
           }
-          const label =
-            seg.status === 'failed'
-              ? `第${seg.seq}段(失败)`
-              : seg.status === 'complete'
-                ? `第${seg.seq}段(无文件)`
-                : `第${seg.seq}段(${seg.status || '处理中'})`;
+          const label = `第${seg.seq}段(${recordingStatusText(seg.status)})`;
           return h('span', label);
         })
       );

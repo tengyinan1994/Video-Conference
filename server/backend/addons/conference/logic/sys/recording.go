@@ -485,7 +485,8 @@ func applyPublicEndpoint(raw, publicEndpoint string) string {
 }
 
 func presignRecordingObject(ctx context.Context, cfg *model.RecordingConfig, objectKey, disposition, filename string) (string, error) {
-	client, err := newRecordingS3Client(cfg)
+	// 预签名必须用浏览器可达的 Host，否则仅靠事后改写 URL 会导致签名校验失败
+	client, err := newRecordingS3Client(cfg, recordingPresignEndpoint(cfg))
 	if err != nil {
 		return "", err
 	}
@@ -500,6 +501,17 @@ func presignRecordingObject(ctx context.Context, cfg *model.RecordingConfig, obj
 		return "", gerror.Wrap(err, "生成录制文件地址失败")
 	}
 	return u.String(), nil
+}
+
+// recordingPresignEndpoint 浏览器直链签名用地址；优先 publicEndpoint
+func recordingPresignEndpoint(cfg *model.RecordingConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	if ep := strings.TrimSpace(cfg.PublicEndpoint); ep != "" {
+		return ep
+	}
+	return strings.TrimSpace(cfg.S3.Endpoint)
 }
 
 func recordingEncoding(cfg *model.RecordingConfig) *livekit.EncodingOptions {
@@ -538,8 +550,11 @@ func s3UploadEndpoint(cfg *model.RecordingConfig) string {
 	return strings.TrimSpace(cfg.S3.Endpoint)
 }
 
-func newRecordingS3Client(cfg *model.RecordingConfig) (*minio.Client, error) {
+func newRecordingS3Client(cfg *model.RecordingConfig, endpointOverride ...string) (*minio.Client, error) {
 	endpoint := strings.TrimSpace(cfg.S3.Endpoint)
+	if len(endpointOverride) > 0 && strings.TrimSpace(endpointOverride[0]) != "" {
+		endpoint = strings.TrimSpace(endpointOverride[0])
+	}
 	u, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, gerror.Wrap(err, "解析 S3 endpoint 失败")

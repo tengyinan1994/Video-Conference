@@ -3,6 +3,7 @@ import { request } from '@/utils/request'
 export interface LoginResult {
   id: number
   username: string
+  realName: string
   token: string
   expires: number
 }

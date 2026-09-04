@@ -103,6 +103,62 @@ func (s *sSysRoom) MuteAll(ctx context.Context, in *sysin.RoomMuteAllInp) (res *
 	return
 }
 
+// UnmuteAll 取消全员静音（仅解除麦克风轨）
+func (s *sSysRoom) UnmuteAll(ctx context.Context, in *sysin.RoomMuteAllInp) (res *sysin.RoomUnmuteAllModel, err error) {
+	if err = in.Filter(ctx); err != nil {
+		return
+	}
+	if err = s.assertHost(ctx, in.Room, in.RequesterIdentity); err != nil {
+		return
+	}
+
+	client, _, err := newRoomServiceClient(ctx)
+	if err != nil {
+		return
+	}
+	participants, err := listRoomParticipants(ctx, client, in.Room)
+	if err != nil {
+		return
+	}
+
+	unmuted := 0
+	for _, p := range participants {
+		if p == nil || p.Identity == in.RequesterIdentity {
+			continue
+		}
+		if isEgressIdentity(p.Identity) || isEgressIdentity(p.Name) {
+			continue
+		}
+		for _, t := range p.Tracks {
+			if t == nil {
+				continue
+			}
+			if t.Type != livekit.TrackType_AUDIO {
+				continue
+			}
+			if t.Source != livekit.TrackSource_MICROPHONE && t.Source != livekit.TrackSource_UNKNOWN {
+				continue
+			}
+			if !t.Muted {
+				continue
+			}
+			_, unmuteErr := client.MutePublishedTrack(ctx, &livekit.MuteRoomTrackRequest{
+				Room:     in.Room,
+				Identity: p.Identity,
+				TrackSid: t.Sid,
+				Muted:    false,
+			})
+			if unmuteErr != nil {
+				return nil, gerror.Wrapf(unmuteErr, "取消静音 %s 失败", p.Identity)
+			}
+			unmuted++
+		}
+	}
+
+	res = &sysin.RoomUnmuteAllModel{UnmutedCount: unmuted}
+	return
+}
+
 // ClaimHost 仅同步「预定主持人」的 metadata，不再支持空房接任/转让。
 func (s *sSysRoom) ClaimHost(ctx context.Context, in *sysin.RoomClaimHostInp) (res *sysin.RoomClaimHostModel, err error) {
 	if err = in.Filter(ctx); err != nil {

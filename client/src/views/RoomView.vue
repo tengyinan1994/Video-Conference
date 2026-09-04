@@ -3,9 +3,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Alert,
+  Badge,
   Button,
   Drawer,
   Input,
+  Modal,
   Select,
   Space,
   Tag,
@@ -15,11 +17,14 @@ import {
 import {
   AudioMutedOutlined,
   AudioOutlined,
+  ClockCircleOutlined,
+  CopyOutlined,
   DesktopOutlined,
   ExpandOutlined,
   AppstoreOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
+  LinkOutlined,
   LogoutOutlined,
   MessageOutlined,
   SoundOutlined,
@@ -29,37 +34,36 @@ import {
   VideoCameraOutlined,
   VideoCameraFilled,
 } from '@ant-design/icons-vue'
+import dayjs from 'dayjs'
 import MediaTrack from '@/components/MediaTrack.vue'
 import QualityBars from '@/components/QualityBars.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import {
   kickParticipant,
   muteAllParticipants,
+  unmuteAllParticipants,
   claimHost,
   startRecording,
   stopRecording,
   recordingStatus,
+  shareView,
+  createToken,
+  type MeetingShareView,
 } from '@/api/conference'
 import { ApiError } from '@/utils/request'
 import { isLoggedIn } from '@/stores/auth'
-import { useLiveKitRoom } from '@/composables/useLiveKitRoom'
-
-interface SessionPayload {
-  serverUrl: string
-  token: string
-  room: string
-  title?: string
-  identity: string
-  nickname: string
-  expiresAt: number
-  isHost: boolean
-  enableMic?: boolean
-  enableCamera?: boolean
-  fromShare?: boolean
-  shareCode?: string
-  recordEnabled?: boolean
-  recordingActive?: boolean
-}
+import {
+  useLiveKitRoom,
+  mediaErrorMessage,
+  type AttachableTrack,
+  type MediaParticipant,
+} from '@/composables/useLiveKitRoom'
+import {
+  readMeetingSession,
+  writeMeetingSession,
+  removeMeetingSession,
+  type MeetingSession as SessionPayload,
+} from '@/utils/meetingSession'
 
 const route = useRoute()
 const router = useRouter()
@@ -101,10 +105,114 @@ const memberOpen = ref(false)
 const chatOpen = ref(false)
 const chatDraft = ref('')
 const chatListEl = ref<HTMLElement | null>(null)
+/** 聊天面板关闭期间收到的远端消息数（本地发送不计） */
+const chatUnread = ref(0)
 const hostActing = ref(false)
+const muteAllActive = ref(false)
 const recordingActive = ref(false)
 const recordingActing = ref(false)
+const inviteOpen = ref(false)
+const inviteLoading = ref(false)
+const inviteInfo = ref<MeetingShareView | null>(null)
 let recordingPollTimer: ReturnType<typeof setInterval> | null = null
+/** 是否已取得一次可靠的录制状态快照（用于边沿检测，避免进房时误报） */
+let recordingStatusInited = false
+
+// —— 会议已进行时长（正向计时）——
+// 以本端首次成功进房为起点，把起点写进 sessionStorage（按房间 key），
+// 这样刷新页面/短暂重连后计时不会归零，仍延续同一场会议的时长。
+let meetingTimer: ReturnType<typeof setInterval> | null = null
+const meetingStartAt = ref<number | null>(null)
+const meetingElapsed = ref(0)
+
+const meetingStartKey = computed(() => `vc.meetingStart.${String(route.params.room)}`)
+
+function ensureMeetingStart() {
+  if (meetingStartAt.value != null) return
+  const persisted = Number(sessionStorage.getItem(meetingStartKey.value))
+  if (persisted > 0) {
+    meetingStartAt.value = persisted
+  } else {
+    meetingStartAt.value = Date.now()
+    sessionStorage.setItem(meetingStartKey.value, String(meetingStartAt.value))
+  }
+}
+
+function tickMeetingElapsed() {
+  if (meetingStartAt.value == null) return
+  meetingElapsed.value = Math.max(0, Math.floor((Date.now() - meetingStartAt.value) / 1000))
+}
+
+function startMeetingTimer() {
+  ensureMeetingStart()
+  tickMeetingElapsed()
+  if (meetingTimer) return
+  meetingTimer = setInterval(tickMeetingElapsed, 1000)
+}
+
+function stopMeetingTimer() {
+  if (meetingTimer) {
+    clearInterval(meetingTimer)
+    meetingTimer = null
+  }
+}
+
+const elapsedText = computed(() => {
+  const s = meetingElapsed.value
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`
+})
+
+// —— 录制时长（正向计时）——
+// 以当前进行中录制段的 startedAt（服务端 LiveKit egress 启动时间）为起点，
+// 刷新页面/短暂重连/其他参会者都会看到同一段录制的真实时长，而非本端局部计时归零。
+const recordingStartedAt = ref<number | null>(null)
+const recordingElapsed = ref(0)
+let recordingTimer: ReturnType<typeof setInterval> | null = null
+
+function tickRecordingElapsed() {
+  if (recordingStartedAt.value === null) return
+  recordingElapsed.value = Math.max(0, Math.floor((Date.now() - recordingStartedAt.value) / 1000))
+}
+
+function startRecordingTimer() {
+  tickRecordingElapsed()
+  if (recordingTimer) return
+  recordingTimer = setInterval(tickRecordingElapsed, 1000)
+}
+
+function stopRecordingTimer() {
+  if (recordingTimer) {
+    clearInterval(recordingTimer)
+    recordingTimer = null
+  }
+}
+
+function syncRecordingTimer() {
+  if (recordingActive.value && recordingStartedAt.value !== null) {
+    startRecordingTimer()
+  } else {
+    stopRecordingTimer()
+    recordingElapsed.value = 0
+  }
+}
+
+const recordingElapsedText = computed(() => {
+  const s = recordingElapsed.value
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`
+})
+
+/** 取当前进行中的录制段（starting/active 中 seq 最大者，其 startedAt 即本段录制起点） */
+function activeRecordingSegment(
+  segments: { status: string; seq: number; startedAt?: string }[],
+) {
+  return [...segments]
+    .filter((s) => s.status === 'starting' || s.status === 'active')
+    .sort((a, b) => b.seq - a.seq)[0]
+}
+
+type InviteKind = 'guest' | 'member'
 
 const statusText = computed(() => {
   switch (status.value) {
@@ -116,6 +224,10 @@ const statusText = computed(() => {
       return '重连中…'
     case 'disconnected':
       return '已断开'
+    case 'kicked':
+      return '已被移出'
+    case 'ended':
+      return '会议已结束'
     case 'error':
       return '连接失败'
     default:
@@ -123,7 +235,47 @@ const statusText = computed(() => {
   }
 })
 
+const statusTagColor = computed(() => {
+  if (status.value === 'connected') return 'success'
+  if (status.value === 'kicked' || status.value === 'ended' || status.value === 'error') return 'error'
+  if (status.value === 'reconnecting') return 'warning'
+  return 'processing'
+})
+
 const isHost = computed(() => !!session.value?.isHost)
+const canInvite = computed(() => !!session.value?.shareCode)
+
+const inviteTime = computed(() => {
+  const m = inviteInfo.value
+  if (!m?.startAt) return null
+  const start = dayjs(m.startAt)
+  const end = m.endAt ? dayjs(m.endAt) : null
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六']
+  const date = `${start.format('YYYY年M月D日')} 周${weekdays[start.day()]}`
+  const range = end ? `${start.format('HH:mm')} – ${end.format('HH:mm')}` : start.format('HH:mm')
+  let duration = ''
+  if (end) {
+    const mins = end.diff(start, 'minute')
+    if (mins > 0) {
+      const h = Math.floor(mins / 60)
+      const mRemain = mins % 60
+      duration = h > 0 ? (mRemain ? `${h} 小时 ${mRemain} 分钟` : `${h} 小时`) : `${mins} 分钟`
+    }
+  }
+  return { date, range, duration }
+})
+
+const inviteEnded = computed(() => {
+  const s = inviteInfo.value?.status
+  return s === 'ended' || s === 'released'
+})
+const inviteTimeText = computed(() => {
+  const t = inviteTime.value
+  if (!t) return '-'
+  if (!t.duration) return `${t.date} ${t.range}`
+  const label = inviteEnded.value ? '实际时长' : '预计时长'
+  return `${t.date} ${t.range}，${label} ${t.duration}`
+})
 
 async function syncHostRole() {
   // 主持权仅来自预定人（进房 Token 的 isHost），不再自动接任/抢占
@@ -138,6 +290,11 @@ async function syncHostRole() {
 }
 
 const avatarParticipants = computed(() => participants.value)
+
+/** 远端音频与布局解耦：投屏/单主视图/侧栏隐藏时仍要播放别人说话 */
+const remoteAudioParticipants = computed(() =>
+  participants.value.filter((p) => !p.isLocal && p.audioTrack),
+)
 
 /** 侧栏只列出有画面的成员，便于切换主视图 */
 const sideParticipants = computed(() =>
@@ -194,15 +351,35 @@ async function toggleMainFullscreen() {
   }
 }
 
-const mainStageTrack = computed(() => {
-  const p = speakerParticipant.value
-  if (!p) return undefined
-  // 投屏时主画面必须是屏幕轨，不要被人像抢走
-  if (p.isScreenSharing) return p.screenTrack ?? p.videoTrack
-  return p.videoTrack ?? p.cameraTrack
-})
+/** 该轨当前是否可渲染：必须有 mediaStreamTrack 且状态为 live。
+ *  无 MST 或已 ended 的轨道挂到 <video> 上只会渲染成一帧黑屏，必须跳过。 */
+function canRenderTrack(track?: AttachableTrack | null): boolean {
+  if (!track) return false
+  const mst = track.mediaStreamTrack
+  return !!mst && mst.readyState === 'live'
+}
 
-const mainIsScreen = computed(() => !!speakerParticipant.value?.isScreenSharing)
+/** 取参与人当前可渲染的最佳视频轨：投屏轨若已失效则回退到摄像头轨，避免黑屏。 */
+function pickVideoTrack(p?: MediaParticipant | null): { track?: AttachableTrack; isScreen: boolean } {
+  if (!p) return { track: undefined, isScreen: false }
+  if (canRenderTrack(p.screenTrack)) return { track: p.screenTrack, isScreen: true }
+  if (canRenderTrack(p.cameraTrack)) return { track: p.cameraTrack, isScreen: false }
+  return { track: undefined, isScreen: false }
+}
+
+const mainVideo = computed(() => {
+  const p = speakerParticipant.value
+  if (!p) return null
+  const best = pickVideoTrack(p)
+  return { participant: p, track: best.track, isScreen: best.isScreen }
+})
+const mainStageTrack = computed(() => mainVideo.value?.track)
+const mainIsScreen = computed(() => !!mainVideo.value?.isScreen)
+
+/** 侧栏 tile 与主画面共用同一套"取可渲染 live 轨"逻辑，避免投屏轨失效后渲染黑屏 */
+function videoFor(p: MediaParticipant) {
+  return pickVideoTrack(p)
+}
 
 const micOptions = computed(() =>
   audioInputs.value.map((d) => ({ value: d.deviceId, label: d.label })),
@@ -214,27 +391,63 @@ const speakerOptions = computed(() =>
   audioOutputs.value.map((d) => ({ value: d.deviceId, label: d.label })),
 )
 
+async function refreshSessionToken(parsed: SessionPayload): Promise<SessionPayload | null> {
+  const nick = (parsed.nickname || '').trim()
+  if (!nick) return null
+  try {
+    const data = parsed.shareCode
+      ? await createToken({ shareCode: parsed.shareCode, nickname: nick })
+      : await createToken({ room: parsed.room, nickname: nick })
+    if (data.room !== parsed.room && data.room !== route.params.room) {
+      return null
+    }
+    const next: SessionPayload = {
+      ...parsed,
+      serverUrl: data.serverUrl,
+      token: data.token,
+      room: data.room,
+      title: data.title || parsed.title,
+      identity: data.identity,
+      nickname: data.nickname || nick,
+      expiresAt: data.expiresAt,
+      isHost: !!data.isHost,
+      recordEnabled: !!data.recordEnabled,
+      recordingActive: !!data.recordingActive,
+    }
+    writeMeetingSession(next)
+    return next
+  } catch (err) {
+    const msg = err instanceof ApiError ? err.message : '重新获取进房凭证失败'
+    message.error(msg)
+    return null
+  }
+}
+
 async function enter() {
-  const raw = sessionStorage.getItem('vc.session')
-  if (!raw) {
+  const room = String(route.params.room)
+  let parsed = readMeetingSession(room)
+  if (!parsed) {
     message.warning('缺少进房凭证，请重新加入')
     await leaveToEntry()
     return
   }
-  const parsed = JSON.parse(raw) as SessionPayload
-  if (parsed.room !== route.params.room) {
+  if (parsed.room !== room) {
     message.warning('房间不匹配，请重新加入')
     await leaveToEntry()
     return
   }
   if (parsed.expiresAt * 1000 < Date.now()) {
-    message.error('票据已过期，请重新进入')
-    sessionStorage.removeItem('vc.session')
-    await leaveToEntry(parsed)
-    return
+    const renewed = await refreshSessionToken(parsed)
+    if (!renewed) {
+      removeMeetingSession(room)
+      await leaveToEntry(parsed)
+      return
+    }
+    parsed = renewed
   }
   session.value = parsed
   recordingActive.value = !!parsed.recordingActive
+  chatUnread.value = 0
   joining.value = true
   try {
     await connect(parsed.serverUrl, parsed.token, {
@@ -246,10 +459,33 @@ async function enter() {
     await refreshRecordingStatus()
     startRecordingPoll()
   } catch {
-    // errorMessage already set
+    // 信令失败时换新 Token 再试一次（主持人刚离开 / 票据失效等）
+    const renewed = await refreshSessionToken(parsed)
+    if (renewed) {
+      session.value = renewed
+      recordingActive.value = !!renewed.recordingActive
+      try {
+        await connect(renewed.serverUrl, renewed.token, {
+          enableMic: !!renewed.enableMic,
+          enableCamera: !!renewed.enableCamera,
+        })
+        await refreshDevices()
+        await syncHostRole()
+        await refreshRecordingStatus()
+        startRecordingPoll()
+        return
+      } catch {
+        // errorMessage already set by second attempt
+      }
+    }
   } finally {
     joining.value = false
   }
+}
+
+async function retryEnter() {
+  if (joining.value || status.value === 'connecting') return
+  await enter()
 }
 
 async function leaveToEntry(payload?: SessionPayload | null) {
@@ -267,10 +503,66 @@ async function leaveToEntry(payload?: SessionPayload | null) {
 
 async function leave() {
   stopRecordingPoll()
+  stopRecordingTimer()
   await disconnect()
   const s = session.value
-  sessionStorage.removeItem('vc.session')
+  removeMeetingSession(s?.room || route.params.room)
   await leaveToEntry(s)
+}
+
+function shareLink() {
+  const code = session.value?.shareCode
+  if (!code) return ''
+  return `${window.location.origin}/join/${code}`
+}
+
+async function openInvite() {
+  if (!session.value?.shareCode) {
+    message.warning('当前会议暂无邀请链接')
+    return
+  }
+  inviteOpen.value = true
+  inviteLoading.value = true
+  inviteInfo.value = null
+  try {
+    inviteInfo.value = await shareView(session.value.shareCode)
+  } catch {
+    // 无详情时仍可复制链接
+  } finally {
+    inviteLoading.value = false
+  }
+}
+
+function clearInvite() {
+  inviteInfo.value = null
+}
+
+function buildInviteText(kind: InviteKind) {
+  const title = inviteInfo.value?.title || session.value?.title || '视频会议'
+  const hostName = inviteInfo.value?.hostName || '-'
+  const how =
+    kind === 'guest'
+      ? '打开下方链接，填写昵称即可进入（无需账号）'
+      : '请使用公司账号登录后，通过下方链接进入会议'
+  return [
+    '【视频会议邀请】',
+    `主题：${title}`,
+    `主持人：${hostName}`,
+    `时间：${inviteTimeText.value}`,
+    `加入方式：${how}`,
+    `会议链接：${shareLink()}`,
+  ].join('\n')
+}
+
+async function copyInvite(kind: InviteKind) {
+  if (!session.value?.shareCode) return
+  const text = buildInviteText(kind)
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success(kind === 'guest' ? '游客邀请已复制' : '同事邀请已复制')
+  } catch {
+    message.info(text)
+  }
 }
 
 async function onSendChat() {
@@ -303,8 +595,23 @@ async function onMuteAll() {
   try {
     const res = await muteAllParticipants(session.value.room, session.value.identity)
     message.success(`已全员静音（${res.mutedCount} 路麦克风）`)
+    muteAllActive.value = true
   } catch (err) {
     message.error(err instanceof ApiError ? err.message : '全员静音失败')
+  } finally {
+    hostActing.value = false
+  }
+}
+
+async function onUnmuteAll() {
+  if (!session.value) return
+  hostActing.value = true
+  try {
+    const res = await unmuteAllParticipants(session.value.room, session.value.identity)
+    message.success(`已取消全员静音（${res.unmutedCount} 路麦克风）`)
+    muteAllActive.value = false
+  } catch (err) {
+    message.error(err instanceof ApiError ? err.message : '取消全员静音失败')
   } finally {
     hostActing.value = false
   }
@@ -315,7 +622,17 @@ async function refreshRecordingStatus() {
   try {
     const res = await recordingStatus({ room: session.value.room })
     if (recordingActing.value) return
-    recordingActive.value = !!res.active
+    const active = !!res.active
+    // 录制状态跨端边沿检测：进房首轮（recordingStatusInited=false）不判，避免对已在录制中的状态误报；
+    // 本机主持人由 onToggleRecording 点击即时提示，轮询跳过避免双报；其余参会者补上「开始/停止录制」提示。
+    if (recordingStatusInited && active !== recordingActive.value && !isHost.value) {
+      message.success(active ? '已开始录制' : '已停止录制')
+    }
+    recordingActive.value = active
+    const seg = activeRecordingSegment(res.segments || [])
+    recordingStartedAt.value = active && seg?.startedAt ? dayjs(seg.startedAt).valueOf() : null
+    syncRecordingTimer()
+    recordingStatusInited = true
   } catch {
     // ignore poll errors
   }
@@ -346,8 +663,9 @@ async function onToggleRecording() {
       await stopRecording(room)
       message.success('已停止录制')
     } else {
-      await startRecording(room)
+      const seg = await startRecording(room)
       message.success('已开始录制')
+      recordingStartedAt.value = seg?.startedAt ? dayjs(seg.startedAt).valueOf() : null
     }
   } catch (err) {
     recordingActive.value = stopping
@@ -355,6 +673,7 @@ async function onToggleRecording() {
     await refreshRecordingStatus()
   } finally {
     recordingActing.value = false
+    syncRecordingTimer()
   }
 }
 
@@ -362,7 +681,7 @@ async function onToggleMic() {
   try {
     await toggleMic()
   } catch (err) {
-    message.error(err instanceof Error ? err.message : '无法开关麦克风')
+    message.error(mediaErrorMessage(err))
   }
 }
 
@@ -370,7 +689,7 @@ async function onToggleCamera() {
   try {
     await toggleCamera()
   } catch (err) {
-    message.error(err instanceof Error ? err.message : '无法开关摄像头')
+    message.error(mediaErrorMessage(err))
   }
 }
 
@@ -378,7 +697,7 @@ async function onToggleScreenShare() {
   try {
     await toggleScreenShare()
   } catch (err) {
-    message.error(err instanceof Error ? err.message : '无法开关屏幕共享')
+    message.error(mediaErrorMessage(err))
   }
 }
 
@@ -393,6 +712,54 @@ watch(
   { deep: true },
 )
 
+// 聊天面板关闭时收到远端消息才累计未读；本地发送的不计
+watch(
+  chatMessages,
+  (list, prev) => {
+    if (chatOpen.value) return
+    const prevIds = new Set((prev ?? []).map((m) => m.id))
+    const addedRemote = list.filter((m) => !prevIds.has(m.id) && !m.isLocal)
+    if (addedRemote.length) chatUnread.value += addedRemote.length
+  },
+  { deep: true },
+)
+
+// 打开聊天面板即视为已读
+watch(chatOpen, (open) => {
+  if (open) chatUnread.value = 0
+})
+
+watch(status, (s) => {
+  if (s === 'connected') {
+    startMeetingTimer()
+    return
+  }
+  if (s === 'kicked') {
+    stopMeetingTimer()
+    message.warning('你已被主持人移出会议')
+  } else if (s === 'ended') {
+    stopMeetingTimer()
+    message.warning('会议已结束')
+  }
+})
+
+// 会议房里实时把麦克风/摄像头开关写回 session，刷新页面 / 短暂重连后仍保留当前状态，
+// 避免 `enter()` 只读到进会那一刻的 enableMic/enableCamera 而回退开关。
+watch(
+  [micEnabled, cameraEnabled],
+  ([mic, cam]) => {
+    const s = session.value
+    if (!s) return
+    // 仅连接态才写回会话：断连/卸载时本地摄像头/麦克风轨道会被解发布而瞬间变为「关」，
+    // 此时写回会把刷新前的正确状态覆盖成「关闭」（进房前开了摄像头，刷新后却变关）。
+    if (status.value !== 'connected') return
+    if (s.enableMic === mic && s.enableCamera === cam) return
+    s.enableMic = mic
+    s.enableCamera = cam
+    writeMeetingSession(s)
+  },
+)
+
 onMounted(() => {
   document.addEventListener('fullscreenchange', syncMainFullscreen)
   void enter()
@@ -400,6 +767,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopRecordingPoll()
+  stopMeetingTimer()
+  stopRecordingTimer()
   document.removeEventListener('fullscreenchange', syncMainFullscreen)
   if (document.fullscreenElement === mainStageEl.value) {
     void document.exitFullscreen().catch(() => undefined)
@@ -412,11 +781,17 @@ onBeforeUnmount(() => {
     <header class="top">
       <div class="top-left">
         <strong>{{ session?.title || `房间 ${route.params.room}` }}</strong>
-        <Tag class="tag" :color="status === 'connected' ? 'success' : 'processing'">
+        <Tag class="tag" :color="statusTagColor">
           {{ statusText }}
         </Tag>
         <Tag v-if="isHost" color="gold">主持人</Tag>
-        <Tag v-if="recordingActive" color="red">录制中</Tag>
+        <Tag v-if="recordingActive" color="red" class="tag recording">
+          录制中<span v-if="recordingStartedAt != null" class="recording-time">{{ recordingElapsedText }}</span>
+        </Tag>
+        <Tag v-if="status === 'connected'" class="tag duration" color="blue">
+          <ClockCircleOutlined class="duration-icon" />
+          已进行 {{ elapsedText }}
+        </Tag>
       </div>
       <div class="top-right">
         <div v-if="session" class="meta">
@@ -432,7 +807,13 @@ onBeforeUnmount(() => {
       show-icon
       :message="errorMessage"
       class="banner"
-    />
+    >
+      <template #action>
+        <Button size="small" type="primary" :loading="joining" @click="retryEnter">
+          重新连接
+        </Button>
+      </template>
+    </Alert>
     <Alert
       v-else-if="status === 'reconnecting'"
       type="warning"
@@ -440,6 +821,15 @@ onBeforeUnmount(() => {
       message="网络波动，正在重连…"
       class="banner"
     />
+
+    <!-- 远端音频始终挂载，避免投屏/单主视图把侧栏卸掉后听不见人 -->
+    <div class="remote-audio" aria-hidden="true">
+      <MediaTrack
+        v-for="p in remoteAudioParticipants"
+        :key="`audio-${p.identity}`"
+        :track="p.audioTrack"
+      />
+    </div>
 
     <div class="stage" :class="[layoutMode, { solo: layoutMode === 'speaker' && !sideVisible }]">
       <!-- 无人出画面：头像 + 名称墙 -->
@@ -461,7 +851,6 @@ onBeforeUnmount(() => {
               <span v-if="!p.isMicrophoneEnabled">静音</span>
               <QualityBars :quality="p.connectionQuality" />
             </div>
-            <MediaTrack v-if="p.audioTrack && !p.isLocal" :track="p.audioTrack" />
           </div>
           <div v-if="!avatarParticipants.length" class="empty">
             {{ joining || status === 'connecting' ? '正在进入房间…' : '暂无参与者' }}
@@ -483,6 +872,7 @@ onBeforeUnmount(() => {
           >
             <MediaTrack
               v-if="mainStageTrack"
+              :key="`${speakerParticipant.identity}-${mainIsScreen ? 'screen' : 'camera'}`"
               :track="mainStageTrack"
               :mirror="speakerParticipant.isLocal && !mainIsScreen"
               :fit="mainIsScreen ? 'contain' : 'cover'"
@@ -491,10 +881,6 @@ onBeforeUnmount(() => {
             <div v-else class="placeholder">
               <span class="placeholder-name">{{ speakerParticipant.name }}</span>
             </div>
-            <MediaTrack
-              v-if="speakerParticipant.audioTrack && !speakerParticipant.isLocal"
-              :track="speakerParticipant.audioTrack"
-            />
             <div class="main-actions">
               <Tooltip
                 v-if="canToggleSoloLayout"
@@ -547,19 +933,19 @@ onBeforeUnmount(() => {
             @click="focusParticipant(p.identity)"
           >
             <MediaTrack
-              v-if="p.screenTrack || p.cameraTrack"
-              :track="p.screenTrack || p.cameraTrack"
-              :mirror="p.isLocal && !p.screenTrack"
-              :fit="p.screenTrack ? 'contain' : 'cover'"
+              v-if="videoFor(p).track"
+              :key="videoFor(p).isScreen ? 'screen' : 'camera'"
+              :track="videoFor(p).track"
+              :mirror="p.isLocal && !videoFor(p).isScreen"
+              :fit="videoFor(p).isScreen ? 'contain' : 'cover'"
               muted
             />
             <div v-else class="placeholder sm">
               <span class="placeholder-name">{{ p.name }}</span>
             </div>
-            <MediaTrack v-if="p.audioTrack && !p.isLocal" :track="p.audioTrack" />
             <div class="label">
               {{ p.name }}
-              <span v-if="p.isScreenSharing"> · 共享</span>
+              <span v-if="videoFor(p).isScreen"> · 共享</span>
             </div>
           </div>
         </div>
@@ -647,19 +1033,29 @@ onBeforeUnmount(() => {
         </Button>
         <Button @click="chatOpen = true">
           <template #icon>
-            <MessageOutlined />
+            <Badge :count="chatUnread" :offset="[5, -2]" size="small">
+              <MessageOutlined />
+            </Badge>
           </template>
           聊天
+        </Button>
+        <Button v-if="canInvite" @click="openInvite">
+          <template #icon>
+            <LinkOutlined />
+          </template>
+          邀请
         </Button>
         <Button
           v-if="isHost"
           :loading="hostActing"
-          @click="onMuteAll"
+          :danger="muteAllActive"
+          @click="muteAllActive ? onUnmuteAll() : onMuteAll()"
         >
           <template #icon>
-            <SoundOutlined />
+            <SoundOutlined v-if="!muteAllActive" />
+            <AudioMutedOutlined v-else />
           </template>
-          全员静音
+          {{ muteAllActive ? '取消全员静音' : '全员静音' }}
         </Button>
         <Button
           v-if="isHost"
@@ -750,6 +1146,58 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </Drawer>
+
+    <Modal
+      v-model:open="inviteOpen"
+      :title="inviteInfo?.title || session?.title || '邀请'"
+      :footer="null"
+      wrap-class-name="room-invite-modal"
+      destroy-on-close
+      :afterClose="clearInvite"
+    >
+      <div class="invite-panel">
+        <div v-if="inviteLoading" class="invite-loading">加载会议信息…</div>
+        <template v-else>
+          <div class="invite-fields">
+            <div class="invite-line">
+              <span class="invite-label">主持人</span>
+              <span class="invite-value">{{ inviteInfo?.hostName || '-' }}</span>
+            </div>
+            <div class="invite-line">
+              <span class="invite-label">时间</span>
+              <div v-if="inviteTime" class="invite-time">
+                <span class="invite-time-date">{{ inviteTime.date }}</span>
+                <span class="invite-time-range">
+                  <ClockCircleOutlined class="invite-time-icon" />
+                  <span class="tabular">{{ inviteTime.range }}</span>
+                  <span v-if="inviteTime.duration" class="invite-time-dur">
+                    {{ inviteEnded ? '实际时长' : '预计时长' }} {{ inviteTime.duration }}
+                  </span>
+                </span>
+              </div>
+              <span v-else class="invite-value">-</span>
+            </div>
+          </div>
+
+          <div class="invite-actions">
+            <div class="invite-action">
+              <Button type="primary" class="invite-btn invite-btn-guest" block @click="copyInvite('guest')">
+                <template #icon><CopyOutlined /></template>
+                复制游客邀请
+              </Button>
+              <p class="invite-hint">对方打开链接填写昵称即可进入，无需账号</p>
+            </div>
+            <div class="invite-action">
+              <Button class="invite-btn invite-btn-member" block @click="copyInvite('member')">
+                <template #icon><CopyOutlined /></template>
+                复制同事邀请
+              </Button>
+              <p class="invite-hint">对方需用账号登录后，通过链接进入会议</p>
+            </div>
+          </div>
+        </template>
+      </div>
+    </Modal>
   </div>
 </template>
 
@@ -794,6 +1242,19 @@ onBeforeUnmount(() => {
 .tag {
   margin-left: 8px;
 }
+.tag.duration {
+  font-variant-numeric: tabular-nums;
+}
+.tag.recording {
+  font-variant-numeric: tabular-nums;
+}
+.recording-time {
+  margin-left: 4px;
+}
+.duration-icon {
+  margin-right: 4px;
+  font-size: 12px;
+}
 .meta {
   color: var(--vc-muted);
   font-size: 13px;
@@ -801,6 +1262,20 @@ onBeforeUnmount(() => {
 .banner {
   flex-shrink: 0;
   margin: 12px 16px 0;
+}
+.remote-audio {
+  /* 视觉隐藏即可；勿用 display:none / 0x0，部分浏览器会停播 audio */
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  pointer-events: none;
 }
 .stage {
   flex: 1;
@@ -1113,9 +1588,11 @@ onBeforeUnmount(() => {
 }
 .chat-row.mine .chat-bubble {
   border-radius: 12px 12px 4px 12px;
-  background: var(--brand);
-  border-color: var(--brand);
-  color: #fff;
+  /* 文字颜色随主题切换，保证可读性：
+     浅色 = 浅橙底 + 深棕字（约 6.7:1）；深色 = 深琥珀底 + 白字（约 5:1） */
+  background: var(--vc-brand-fill);
+  border-color: var(--vc-brand-fill);
+  color: var(--vc-brand-ink);
 }
 .chat-empty {
   color: var(--vc-muted);
@@ -1130,6 +1607,130 @@ onBeforeUnmount(() => {
   padding: 12px 16px;
   border-top: 1px solid var(--vc-line);
   background: var(--vc-panel-solid);
+}
+.invite-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.invite-loading {
+  color: var(--vc-muted);
+  font-size: 14px;
+  padding: 12px 0 4px;
+}
+.invite-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.invite-line {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.invite-label {
+  color: var(--vc-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.invite-value {
+  color: var(--vc-ink);
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.invite-time {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.invite-time-date {
+  color: var(--vc-ink);
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 1.45;
+}
+.invite-time-range {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--vc-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.invite-time-icon {
+  font-size: 13px;
+  color: var(--brand);
+}
+.invite-time-dur {
+  color: var(--vc-muted);
+  opacity: 0.85;
+}
+.invite-time-dur::before {
+  content: '';
+  display: inline-block;
+  width: 1px;
+  height: 11px;
+  margin-right: 10px;
+  vertical-align: -1px;
+  background: var(--vc-line);
+}
+.invite-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid var(--vc-line);
+}
+.invite-action {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.invite-btn {
+  border-radius: 10px !important;
+  height: auto !important;
+  min-height: 36px;
+  padding: 6px 10px !important;
+  white-space: nowrap;
+}
+.invite-btn-guest {
+  border-color: #f3a04c !important;
+  background: #f3a04c !important;
+  color: #fff !important;
+  box-shadow: 0 8px 18px rgba(243, 160, 76, 0.28) !important;
+}
+.invite-btn-guest:hover {
+  border-color: #e8892a !important;
+  background: #e8892a !important;
+  color: #fff !important;
+}
+.invite-btn-member {
+  border-color: #3b82f6 !important;
+  background: #3b82f6 !important;
+  color: #fff !important;
+  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.28) !important;
+}
+.invite-btn-member:hover {
+  border-color: #2563eb !important;
+  background: #2563eb !important;
+  color: #fff !important;
+}
+.invite-hint {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--vc-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 @media (max-width: 800px) {
   .stage.speaker {
@@ -1147,5 +1748,34 @@ onBeforeUnmount(() => {
     margin-left: 10px;
     margin-right: 10px;
   }
+}
+@media (max-width: 520px) {
+  .invite-actions {
+    flex-direction: column;
+  }
+}
+</style>
+
+<style>
+.room-invite-modal .ant-modal-content {
+  overflow: hidden;
+  border-radius: 14px;
+}
+.room-invite-modal .ant-modal-header {
+  margin: 0;
+  padding: 20px 24px 8px;
+  border-bottom: none;
+}
+.room-invite-modal .ant-modal-title {
+  color: var(--vc-ink, rgba(15, 23, 42, 0.92));
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.room-invite-modal .ant-modal-close {
+  top: 16px;
+}
+.room-invite-modal .ant-modal-body {
+  padding: 4px 24px 22px;
 }
 </style>

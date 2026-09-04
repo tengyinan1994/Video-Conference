@@ -24,8 +24,14 @@ RUN apk add --no-cache git ca-certificates
 COPY server/backend/go.mod server/backend/go.sum ./
 RUN go mod download
 COPY server/backend/ ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
-    go build -ldflags="-s -w" -o /out/hotgo .
+# 禁止 gf pack 内嵌旧前端覆盖镜像内 resource/public/admin
+RUN printf '%s\n' \
+      '// Package packed 为 GoFrame gres 占位包。' \
+      '// 不要把管理后台静态资源 gf pack 进二进制（会覆盖 resource/public/admin）。' \
+      'package packed' \
+      > internal/packed/packed.go \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+      go build -ldflags="-s -w" -o /out/hotgo .
 
 # ---------- 运行时 ----------
 FROM alpine:3.20

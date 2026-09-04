@@ -1,4 +1,14 @@
 import { http } from '@/utils/http/axios';
+import { useGlobSetting } from '@/hooks/setting';
+import { useUserStoreWidthOut } from '@/store/modules/user';
+import { encodeParams } from '@/utils/urlUtils';
+
+/** 后台回放/下载走同源 HTTPS 代理（<a> 无法带 Authorization 头，token 放 query） */
+export function recordingProxyUrl(kind: 'play' | 'download', id: number) {
+  const prefix = useGlobSetting().urlPrefix || '';
+  const token = useUserStoreWidthOut().token || '';
+  return `${prefix}/conference/recording/${kind}?${encodeParams({ id, authorization: token })}`;
+}
 
 // 获取会议列表
 export function List(params) {

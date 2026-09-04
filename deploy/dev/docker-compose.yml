@@ -1,0 +1,87 @@
+# 本机开发：RustFS + Egress（LiveKit 用 dev-livekit.sh 单独起）
+# MySQL/Redis 复用 Middleware，不在此 compose 内。
+#
+# 用法：
+#   docker compose -f deploy/dev/docker-compose.yml --env-file deploy/dev/.env up -d rustfs
+#   ./deploy/dev/start-egress-when-ready.sh
+
+name: video-conference-dev
+
+services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: vc-rustfs-dev
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+    command: ["/data"]
+    volumes:
+      - vc_rustfs_dev_data:/data
+    ports:
+      - "${RUSTFS_PORT:-17886}:9000"
+      - "${RUSTFS_CONSOLE_PORT:-17887}:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9000/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  rustfs-init:
+    image: minio/mc:latest
+    container_name: vc-rustfs-init-dev
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-recordings}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://rustfs:9000 "$$RUSTFS_ACCESS_KEY" "$$RUSTFS_SECRET_KEY"
+        mc mb -p "local/$$RUSTFS_BUCKET" || true
+        echo "bucket $$RUSTFS_BUCKET ready"
+    restart: "no"
+
+  egress:
+    image: livekit/egress:latest
+    container_name: vc-egress-dev
+    restart: unless-stopped
+    depends_on:
+      rustfs:
+        condition: service_healthy
+      rustfs-init:
+        condition: service_completed_successfully
+    cap_add:
+      - SYS_ADMIN
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      EGRESS_CONFIG_BODY: |
+        api_key: devkey
+        api_secret: secret
+        ws_url: ws://host.docker.internal:7880
+        redis:
+          address: host.docker.internal:6379
+          db: 1
+        insecure: true
+        logging:
+          level: info
+        s3:
+          access_key: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+          secret: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+          region: us-east-1
+          endpoint: http://host.docker.internal:${RUSTFS_PORT:-17886}
+          bucket: ${RUSTFS_BUCKET:-recordings}
+          force_path_style: true
+
+volumes:
+  vc_rustfs_dev_data:

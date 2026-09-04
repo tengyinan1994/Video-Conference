@@ -54,6 +54,7 @@
         <n-form
           :model="formParams"
           ref="formRef"
+          :rules="rules"
           label-placement="left"
           :label-width="80"
           class="py-4"
@@ -178,6 +179,22 @@
   const formRef = ref<any>({});
   const batchDeleteDisabled = ref(true);
   const checkedIds = ref([]);
+
+  // 表单验证规则
+  const rules = {
+    name: {
+      required: true,
+      trigger: ['blur', 'input'],
+      type: 'string',
+      message: '请输入岗位名称',
+    },
+    code: {
+      required: true,
+      trigger: ['blur', 'input'],
+      type: 'string',
+      message: '请输入岗位编码',
+    },
+  };
 
   const resetFormParams = {
     id: 0,

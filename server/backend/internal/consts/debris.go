@@ -14,6 +14,7 @@ const (
 	SuperRoleKey          = "super"   // 超管角色唯一标识符，通过角色验证超管
 	MaxServeLogContentLen = 2048      // 最大保留服务日志内容大小
 	SysDefaultLanguage    = "zh_CN"   // 系统默认语言，当配置文件没有国际化配置时生效
+	MemberRemarkMaxLen    = 255       // 用户备注最大长度(与库表字段长度保持一致，超出会导致保存失败)
 )
 
 // curd.
