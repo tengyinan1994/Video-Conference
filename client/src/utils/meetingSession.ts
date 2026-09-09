@@ -21,6 +21,10 @@ export interface MeetingSession {
   shareCode?: string
   recordEnabled?: boolean
   recordingActive?: boolean
+  /** 会议预定开始时间；房间「已进行」时长以此累计，与是否重新进房无关 */
+  startAt?: string
+  /** 实际开始时间（首个参会者提前入会时记录）；为空则计时以 startAt 为起点 */
+  actualStartAt?: string
 }
 
 const SESSION_PREFIX = 'vc.session'

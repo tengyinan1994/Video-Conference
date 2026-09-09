@@ -38,7 +38,7 @@ export type AttachableTrack = {
 }
 
 /** LiveKit Egress 会以 EG_xxx 虚拟参与者进房，不在成员列表展示 */
-function isEgressParticipant(p: Participant): boolean {
+export function isEgressParticipant(p: Participant): boolean {
   const identity = (p.identity || '').trim()
   const name = (p.name || '').trim()
   if (identity.startsWith('EG_') || name.startsWith('EG_')) return true
@@ -46,7 +46,7 @@ function isEgressParticipant(p: Participant): boolean {
   return kind === 'egress' || kind === 3
 }
 
-function isMediaTrackLive(track: { mediaStreamTrack?: MediaStreamTrack } | undefined | null): boolean {
+export function isMediaTrackLive(track: { mediaStreamTrack?: MediaStreamTrack } | undefined | null): boolean {
   if (!track) return false
   const mst = track.mediaStreamTrack
   // 无 mediaStreamTrack 时按存在即有效；有则必须仍在 live
@@ -55,7 +55,7 @@ function isMediaTrackLive(track: { mediaStreamTrack?: MediaStreamTrack } | undef
 }
 
 /** 摄像头/投屏 publication 是否仍有可播放画面（排除已 ended 的黑轨） */
-function isVideoPublicationActive(
+export function isVideoPublicationActive(
   pub: { isMuted: boolean; track?: { mediaStreamTrack?: MediaStreamTrack } | undefined; isSubscribed?: boolean } | undefined,
   isLocal: boolean,
 ): boolean {
@@ -227,7 +227,7 @@ function mapQuality(q: ConnectionQuality): QualityLevel {
   }
 }
 
-function parseRoleHost(metadata: string | undefined): boolean {
+export function parseRoleHost(metadata: string | undefined): boolean {
   if (!metadata) return false
   try {
     const obj = JSON.parse(metadata) as { role?: string }

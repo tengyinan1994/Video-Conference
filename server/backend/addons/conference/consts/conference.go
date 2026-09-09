@@ -20,6 +20,8 @@ const (
 	MaxNicknameLen = 32
 	// MaxMeetingTitleLen 会议名称最大长度
 	MaxMeetingTitleLen = 64
+	// MaxMeetingTypeNameLen 会议类型名称最大长度
+	MaxMeetingTypeNameLen = 32
 	// RateLimitCachePrefix 限流缓存 key 前缀
 	RateLimitCachePrefix = "conference:token:rate:"
 	// HostCachePrefix 房间主持人缓存 key 前缀
@@ -33,6 +35,8 @@ const (
 
 	// MeetingTable 业务会议室表
 	MeetingTable = "hg_addon_conference_meeting"
+	// MeetingTypeTable 会议类型表
+	MeetingTypeTable = "hg_addon_conference_meeting_type"
 	// RecordingTable 录制分段表
 	RecordingTable = "hg_addon_conference_recording"
 
@@ -44,15 +48,15 @@ const (
 
 	// MeetingStatusScheduled 预定
 	MeetingStatusScheduled = "scheduled"
-	// MeetingStatusOngoing 进行中（含结束后宽限期）
+	// MeetingStatusOngoing 进行中（已到预定开始时间，或首个真人已进房；到预定结束时间后若仍有人则继续计时）
 	MeetingStatusOngoing = "ongoing"
-	// MeetingStatusEnded 已结束（手动结束或 end_at+宽限期）
+	// MeetingStatusEnded 已结束（手动结束或预定时长到期后无人自动结束）
 	MeetingStatusEnded = "ended"
 	// MeetingStatusReleased 旧版「已释放」，兼容读库后归一为 ended
 	MeetingStatusReleased = "released"
 
-	// MeetingReleaseGraceHours 结束后自动结束宽限（小时）
-	MeetingReleaseGraceHours = 2
+	// MeetingEarlyJoinMinutes 允许提前进入的分钟数（大厅与游客分享页一致）
+	MeetingEarlyJoinMinutes = 5
 
 	// MeetingListTabOngoing 进行中
 	MeetingListTabOngoing = "ongoing"

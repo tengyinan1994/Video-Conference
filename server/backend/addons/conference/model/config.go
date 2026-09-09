@@ -13,13 +13,15 @@ type LiveKitConfig struct {
 
 // RecordingConfig 录制 → RustFS
 type RecordingConfig struct {
-	Enabled        bool           `json:"enabled"`
-	S3             RecordingS3    `json:"s3"`
-	PublicEndpoint string         `json:"publicEndpoint"`
-	Width          int            `json:"width"`        // 合成宽，默认 2560（与会中投屏 2K 一致）
-	Height         int            `json:"height"`       // 合成高，默认 1440
-	Framerate      int            `json:"framerate"`    // 默认 60
-	VideoBitrate   int            `json:"videoBitrate"` // kbps，默认 12000
+	Enabled        bool        `json:"enabled"`
+	S3             RecordingS3 `json:"s3"`
+	PublicEndpoint string      `json:"publicEndpoint"`
+	// Egress 自定义布局页面 URL；空则用内置 speaker 布局
+	CustomBaseUrl string `json:"customBaseUrl"`
+	Width         int    `json:"width"`        // 合成宽，默认 2560（与会中投屏 2K 一致）
+	Height        int    `json:"height"`       // 合成高，默认 1440
+	Framerate     int    `json:"framerate"`    // 默认 60
+	VideoBitrate  int    `json:"videoBitrate"` // kbps，默认 12000
 }
 
 type RecordingS3 struct {

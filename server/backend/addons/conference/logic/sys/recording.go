@@ -142,7 +142,7 @@ func (s *sSysRecording) Status(ctx context.Context, in *sysin.RecordingStatusInp
 	return
 }
 
-// TryAutoStart 主持人进房且会议开启了录制时，若无进行中段则自动起第一段
+// TryAutoStart 会议开启录制且首个真人进房时自动起第一段；后续进房因已有进行中段幂等跳过。
 func (s *sSysRecording) TryAutoStart(ctx context.Context, meeting *entity.Meeting, startedBy int64) error {
 	if meeting == nil || meeting.RecordEnabled == 0 || meeting.Id <= 0 {
 		return nil
@@ -268,12 +268,11 @@ func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meetin
 
 	forcePath := recCfg.S3.ForcePathStyle
 	enc := recordingEncoding(recCfg)
-	g.Log().Infof(ctx, "start room composite encoding=%dx%d@%dfps %dkbps codec=%s meeting=%d",
-		enc.Width, enc.Height, enc.Framerate, enc.VideoBitrate, enc.VideoCodec.String(), meeting.Id)
+	customBase := strings.TrimSpace(recCfg.CustomBaseUrl)
+	g.Log().Infof(ctx, "start room composite encoding=%dx%d@%dfps %dkbps codec=%s meeting=%d customBase=%q",
+		enc.Width, enc.Height, enc.Framerate, enc.VideoBitrate, enc.VideoCodec.String(), meeting.Id, customBase)
 	req := &livekit.RoomCompositeEgressRequest{
 		RoomName: meeting.RoomName,
-		Layout:   "speaker",
-		// 与会中投屏一致：2K@60。Room Composite 默认 720p30，1080p 对 2K 文字仍会发虚。
 		Options: &livekit.RoomCompositeEgressRequest_Advanced{
 			Advanced: enc,
 		},
@@ -291,6 +290,13 @@ func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meetin
 				},
 			},
 		}},
+	}
+	if customBase != "" {
+		// 自定义布局：由会议室页面渲染并主动打印 START_RECORDING，无轨道也能录制
+		req.CustomBaseUrl = customBase
+	} else {
+		// 默认布局（向后兼容）：2K@60 对齐会中投屏，Room Composite 默认 720p30
+		req.Layout = "speaker"
 	}
 
 	info, err := client.StartRoomCompositeEgress(ctx, req)

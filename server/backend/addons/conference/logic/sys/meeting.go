@@ -23,6 +23,7 @@ import (
 	"github.com/gogf/gf/v2/os/gtime"
 	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/livekit/protocol/livekit"
+	lksdk "github.com/livekit/server-sdk-go/v2"
 )
 
 type sSysMeeting struct{}
@@ -47,6 +48,9 @@ func (s *sSysMeeting) Create(ctx context.Context, in *sysin.MeetingCreateInp) (r
 	if user == nil || user.Id <= 0 {
 		return nil, gerror.New("请先登录")
 	}
+	if err = service.SysMeetingType().AssertExists(ctx, in.TypeId); err != nil {
+		return
+	}
 
 	hostId := in.HostId
 	hostName := in.HostName
@@ -63,7 +67,7 @@ func (s *sSysMeeting) Create(ctx context.Context, in *sysin.MeetingCreateInp) (r
 
 	now := gtime.Now()
 	status := consts.MeetingStatusScheduled
-	if !in.StartAt.After(now) && in.EndAt.After(now.Add(-time.Duration(consts.MeetingReleaseGraceHours)*time.Hour)) {
+	if !in.StartAt.After(now) {
 		status = consts.MeetingStatusOngoing
 	}
 
@@ -89,6 +93,7 @@ func (s *sSysMeeting) Create(ctx context.Context, in *sysin.MeetingCreateInp) (r
 		"created_at":     now,
 		"updated_at":     now,
 		"record_enabled": boolToTiny(in.RecordEnabled),
+		"type_id":        in.TypeId,
 	}
 	id, err := meetingModel(ctx).Data(data).InsertAndGetId()
 	if err != nil {
@@ -100,6 +105,7 @@ func (s *sSysMeeting) Create(ctx context.Context, in *sysin.MeetingCreateInp) (r
 		return nil, gerror.Wrap(err, "读取会议室失败")
 	}
 	res = toMeetingItem(m, user.Id)
+	attachMeetingTypeNames(ctx, []*sysin.MeetingItemModel{res})
 	return
 }
 
@@ -114,7 +120,6 @@ func (s *sSysMeeting) List(ctx context.Context, in *sysin.MeetingListInp) (list 
 	}
 
 	now := gtime.Now()
-	graceEnd := now.Add(-time.Duration(consts.MeetingReleaseGraceHours) * time.Hour)
 
 	mod := meetingModel(ctx)
 	switch in.Tab {
@@ -122,10 +127,12 @@ func (s *sSysMeeting) List(ctx context.Context, in *sysin.MeetingListInp) (list 
 		mod = mod.WhereIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased})
 	case consts.MeetingListTabOngoing:
 		mod = mod.WhereNotIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased}).
-			WhereLTE("start_at", now).WhereGT("end_at", graceEnd)
+			Where("(status = ? OR start_at <= ? OR started_at IS NOT NULL)", consts.MeetingStatusOngoing, now)
 	case consts.MeetingListTabScheduled:
 		mod = mod.WhereNotIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased}).
-			WhereGT("start_at", now)
+			WhereNot("status", consts.MeetingStatusOngoing).
+			Where("start_at > ?", now).
+			WhereNull("started_at")
 	default:
 		// all：表中全部会议（删除为硬删，不会出现在此）
 	}
@@ -142,6 +149,7 @@ func (s *sSysMeeting) List(ctx context.Context, in *sysin.MeetingListInp) (list 
 		item := toMeetingItem(m, userId)
 		list = append(list, item)
 	}
+	attachMeetingTypeNames(ctx, list)
 	attachMeetingRecordings(ctx, list)
 	return
 }
@@ -190,7 +198,7 @@ func (s *sSysMeeting) Delete(ctx context.Context, in *sysin.MeetingDeleteInp) (e
 	if m.HostId != user.Id && !iservice.AdminMember().VerifySuperId(ctx, user.Id) {
 		return gerror.New("仅主持人可删除会议室")
 	}
-	if isEndedStatus(m.Status) || isPastAutoRelease(m) {
+	if isEndedStatus(m.Status) {
 		return gerror.New("已结束的会议请在管理后台删除")
 	}
 
@@ -227,6 +235,12 @@ func (s *sSysMeeting) Update(ctx context.Context, in *sysin.MeetingUpdateInp) (r
 		return nil, gerror.New("进行中或已结束的会议不可修改")
 	}
 
+	if in.TypeId != nil {
+		if err = service.SysMeetingType().AssertExists(ctx, *in.TypeId); err != nil {
+			return
+		}
+	}
+
 	now := gtime.Now()
 	data := g.Map{
 		"title":      in.Title,
@@ -236,6 +250,9 @@ func (s *sSysMeeting) Update(ctx context.Context, in *sysin.MeetingUpdateInp) (r
 	}
 	if in.RecordEnabled != nil {
 		data["record_enabled"] = boolToTiny(*in.RecordEnabled)
+	}
+	if in.TypeId != nil {
+		data["type_id"] = *in.TypeId
 	}
 	if _, err = meetingModel(ctx).Where("id", m.Id).Data(data).Update(); err != nil {
 		return nil, gerror.Wrap(err, "更新会议室失败")
@@ -247,7 +264,11 @@ func (s *sSysMeeting) Update(ctx context.Context, in *sysin.MeetingUpdateInp) (r
 	if in.RecordEnabled != nil {
 		m.RecordEnabled = boolToTiny(*in.RecordEnabled)
 	}
+	if in.TypeId != nil {
+		m.TypeId = *in.TypeId
+	}
 	res = toMeetingItem(m, user.Id)
+	attachMeetingTypeNames(ctx, []*sysin.MeetingItemModel{res})
 	return
 }
 
@@ -263,7 +284,7 @@ func (s *sSysMeeting) ShareView(ctx context.Context, in *sysin.MeetingShareViewI
 		return nil, gerror.New("会议不存在或链接无效")
 	}
 	item := toMeetingItem(m, 0)
-	canJoin := item.Tab != consts.MeetingListTabEnded
+	canJoin := item.Tab != consts.MeetingListTabEnded && !isBeforeJoinWindow(m)
 	res = &sysin.MeetingShareViewModel{
 		Title:     m.Title,
 		RoomName:  m.RoomName,
@@ -303,24 +324,44 @@ func (s *sSysMeeting) AssertJoinable(ctx context.Context, m *entity.Meeting) err
 	if m == nil {
 		return gerror.New("会议室不存在")
 	}
-	if isEndedStatus(m.Status) || isPastAutoRelease(m) {
+	if isEndedStatus(m.Status) {
 		return gerror.New("会议室已结束，无法加入")
+	}
+	if isBeforeJoinWindow(m) {
+		return gerror.New("会议尚未开始")
 	}
 	return nil
 }
 
-// AutoReleaseExpired 定时：结束时间超过宽限期的未结束会议 → 标记为已结束
+// AutoReleaseExpired 定时：已到预定结束时间的未结束会议，若会议室无人则标记为已结束；若仍有人则继续计时。
 func (s *sSysMeeting) AutoReleaseExpired(ctx context.Context) (count int, err error) {
-	deadline := gtime.Now().Add(-time.Duration(consts.MeetingReleaseGraceHours) * time.Hour)
 	var rows []*entity.Meeting
 	if err = meetingModel(ctx).
 		WhereNotIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased}).
-		WhereLTE("end_at", deadline).
+		WhereLTE("end_at", gtime.Now()).
 		Scan(&rows); err != nil {
 		return 0, gerror.Wrap(err, "扫描过期会议室失败")
 	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+
+	client, _, err := newRoomServiceClient(ctx)
+	if err != nil {
+		return 0, gerror.Wrap(err, "获取 LiveKit 客户端失败")
+	}
+
 	for _, m := range rows {
 		if m == nil {
+			continue
+		}
+		empty, checkErr := roomEmpty(ctx, client, m.RoomName)
+		if checkErr != nil {
+			g.Log().Warningf(ctx, "auto release check room empty meeting id=%d room=%s err=%+v", m.Id, m.RoomName, checkErr)
+			continue
+		}
+		if !empty {
+			// 到点后会议室仍有人 → 继续计时，不结束
 			continue
 		}
 		if endErr := s.endMeeting(ctx, m, false); endErr != nil {
@@ -330,6 +371,32 @@ func (s *sSysMeeting) AutoReleaseExpired(ctx context.Context) (count int, err er
 		count++
 	}
 	return
+}
+
+// roomEmpty 判断会议室是否无真人参会者（忽略录制 Egress，仅 Egress 在房视为空）
+func roomEmpty(ctx context.Context, client *lksdk.RoomServiceClient, room string) (bool, error) {
+	if strings.TrimSpace(room) == "" {
+		return true, nil
+	}
+	participants, err := listRoomParticipants(ctx, client, room)
+	if err != nil {
+		return false, err
+	}
+	return !roomHasHumanParticipant(participants), nil
+}
+
+// roomHasHumanParticipant 参会者中是否存在真人（忽略录制 Egress）
+func roomHasHumanParticipant(participants []*livekit.ParticipantInfo) bool {
+	for _, p := range participants {
+		if p == nil {
+			continue
+		}
+		if isEgressIdentity(p.Identity) || isEgressIdentity(p.Name) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (s *sSysMeeting) endMeeting(ctx context.Context, m *entity.Meeting, syncEndAt bool) error {
@@ -366,15 +433,30 @@ func isEndedStatus(status string) bool {
 	return status == consts.MeetingStatusEnded || status == consts.MeetingStatusReleased
 }
 
+// meetingOngoing 会议是否处于进行中：已有首个真人进房（started_at 非空），
+// 或已到预定开始时间（start_at <= now）。用于展示状态推导与列表分区判断。
+func meetingOngoing(m *entity.Meeting, now *gtime.Time) bool {
+	if m == nil || isEndedStatus(m.Status) {
+		return false
+	}
+	if m.Status == consts.MeetingStatusOngoing {
+		return true
+	}
+	if m.StartedAt != nil {
+		return true
+	}
+	return m.StartAt != nil && !m.StartAt.After(now)
+}
+
 func toMeetingItem(m *entity.Meeting, userId int64) *sysin.MeetingItemModel {
 	now := gtime.Now()
 	tab := consts.MeetingListTabScheduled
 	status := m.Status
 
-	if isEndedStatus(status) || isPastAutoRelease(m) {
+	if isEndedStatus(status) {
 		tab = consts.MeetingListTabEnded
 		status = consts.MeetingStatusEnded
-	} else if m.StartAt != nil && !m.StartAt.After(now) {
+	} else if meetingOngoing(m, now) {
 		tab = consts.MeetingListTabOngoing
 		status = consts.MeetingStatusOngoing
 	} else {
@@ -388,6 +470,7 @@ func toMeetingItem(m *entity.Meeting, userId int64) *sysin.MeetingItemModel {
 		HostId:        m.HostId,
 		HostName:      m.HostName,
 		StartAt:       m.StartAt,
+		ActualStartAt: m.StartedAt,
 		EndAt:         m.EndAt,
 		Status:        status,
 		ShareCode:     m.ShareCode,
@@ -396,6 +479,7 @@ func toMeetingItem(m *entity.Meeting, userId int64) *sysin.MeetingItemModel {
 		Tab:           tab,
 		Attendees:     attendeesFromJSON(m.Attendees),
 		RecordEnabled: m.RecordEnabled != 0,
+		TypeId:        m.TypeId,
 	}
 }
 
@@ -425,7 +509,9 @@ func attendeesFromJSON(j *gjson.Json) []string {
 	return out
 }
 
-// AppendAttendee 进房时把显示名去重追加到会议 attendees
+// AppendAttendee 进房时把显示名去重追加到会议 attendees。
+// 首个参会者早于预定开始时间进房时，顺带记录 started_at 作为会议实际开始时间：
+// 会议计时起点 = started_at（有人提前入会）或 start_at（无人提前入会，到点即开始）。
 func (s *sSysMeeting) AppendAttendee(ctx context.Context, roomName, displayName string) (err error) {
 	roomName = strings.TrimSpace(roomName)
 	displayName = strings.TrimSpace(displayName)
@@ -456,25 +542,38 @@ func (s *sSysMeeting) AppendAttendee(ctx context.Context, roomName, displayName 
 		}
 		names = append(names, displayName)
 
-		payload := gjson.New(names)
+		data := g.Map{
+			"attendees":  gjson.New(names),
+			"updated_at": gtime.Now(),
+		}
+		now := gtime.Now()
+		if len(names) == 1 && m.StartedAt == nil && !isEndedStatus(m.Status) {
+			// 首个真人进房即视为进行中：即使早于预定开始时间，状态也立刻变为 ongoing
+			data["status"] = consts.MeetingStatusOngoing
+			m.Status = consts.MeetingStatusOngoing
+			if m.StartAt != nil && m.StartAt.After(now) {
+				// 首个参会者提前入会：从此刻开始累计会议时长（其余参会者以此时间为计时起点）
+				data["started_at"] = now
+				m.StartedAt = now
+			}
+		}
 		if _, err := tx.Model(consts.MeetingTable).Ctx(ctx).
 			Where("id", m.Id).
-			Data(g.Map{
-				"attendees":  payload,
-				"updated_at": gtime.Now(),
-			}).Update(); err != nil {
+			Data(data).
+			Update(); err != nil {
 			return gerror.Wrap(err, "更新参会名单失败")
 		}
 		return nil
 	})
 }
 
-func isPastAutoRelease(m *entity.Meeting) bool {
-	if m == nil || m.EndAt == nil {
+// isBeforeJoinWindow 是否尚未进入可入会窗口（开始前 MeetingEarlyJoinMinutes 分钟）
+func isBeforeJoinWindow(m *entity.Meeting) bool {
+	if m == nil || m.StartAt == nil {
 		return false
 	}
-	deadline := m.EndAt.Add(time.Duration(consts.MeetingReleaseGraceHours) * time.Hour)
-	return !gtime.Now().Before(deadline)
+	openAt := m.StartAt.Add(-time.Duration(consts.MeetingEarlyJoinMinutes) * time.Minute)
+	return gtime.Now().Before(openAt)
 }
 
 func displayName(username, realName string) string {
@@ -509,7 +608,6 @@ func (s *sSysMeeting) AdminList(ctx context.Context, in *sysin.AdminMeetingListI
 	}
 
 	now := gtime.Now()
-	graceEnd := now.Add(-time.Duration(consts.MeetingReleaseGraceHours) * time.Hour)
 	mod := meetingModel(ctx)
 
 	if in.Id > 0 {
@@ -534,10 +632,12 @@ func (s *sSysMeeting) AdminList(ctx context.Context, in *sysin.AdminMeetingListI
 		mod = mod.WhereIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased})
 	case consts.MeetingStatusOngoing:
 		mod = mod.WhereNotIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased}).
-			WhereLTE("start_at", now).WhereGT("end_at", graceEnd)
+			Where("(status = ? OR start_at <= ? OR started_at IS NOT NULL)", consts.MeetingStatusOngoing, now)
 	case consts.MeetingStatusScheduled:
 		mod = mod.WhereNotIn("status", g.Slice{consts.MeetingStatusEnded, consts.MeetingStatusReleased}).
-			WhereGT("start_at", now)
+			WhereNot("status", consts.MeetingStatusOngoing).
+			Where("start_at > ?", now).
+			WhereNull("started_at")
 	}
 
 	mod = mod.Page(in.Page, in.PerPage).OrderDesc("id")
@@ -554,6 +654,7 @@ func (s *sSysMeeting) AdminList(ctx context.Context, in *sysin.AdminMeetingListI
 		}
 		list = append(list, toAdminMeetingItem(m))
 	}
+	attachAdminMeetingTypeNames(ctx, list)
 	attachAdminMeetingRecordings(ctx, list)
 	return
 }
@@ -570,6 +671,7 @@ func (s *sSysMeeting) AdminView(ctx context.Context, in *sysin.AdminMeetingViewI
 		return nil, gerror.New("会议不存在")
 	}
 	res = &sysin.AdminMeetingViewModel{AdminMeetingListModel: toAdminMeetingItem(m)}
+	attachAdminMeetingTypeNames(ctx, []*sysin.AdminMeetingListModel{res.AdminMeetingListModel})
 	attachAdminMeetingRecordings(ctx, []*sysin.AdminMeetingListModel{res.AdminMeetingListModel})
 	return
 }
@@ -582,9 +684,14 @@ func (s *sSysMeeting) AdminEdit(ctx context.Context, in *sysin.AdminMeetingEditI
 	if user == nil || user.Id <= 0 {
 		return gerror.New("请先登录")
 	}
+	if in.TypeId != nil {
+		if err = service.SysMeetingType().AssertExists(ctx, *in.TypeId); err != nil {
+			return
+		}
+	}
 	now := gtime.Now()
 
-	// 编辑：任意状态可改名称与时间
+	// 编辑：任意状态可改名称、时间与会议类型
 	if in.Id > 0 {
 		var m *entity.Meeting
 		if err = meetingModel(ctx).Where("id", in.Id).Scan(&m); err != nil {
@@ -606,6 +713,9 @@ func (s *sSysMeeting) AdminEdit(ctx context.Context, in *sysin.AdminMeetingEditI
 		if in.HostName != "" {
 			data["host_name"] = in.HostName
 		}
+		if in.TypeId != nil {
+			data["type_id"] = *in.TypeId
+		}
 		if _, err = meetingModel(ctx).Where("id", in.Id).Data(data).Update(); err != nil {
 			return gerror.Wrap(err, "更新会议失败")
 		}
@@ -626,8 +736,12 @@ func (s *sSysMeeting) AdminEdit(ctx context.Context, in *sysin.AdminMeetingEditI
 		}
 	}
 	status := consts.MeetingStatusScheduled
-	if !in.StartAt.After(now) && in.EndAt.After(now.Add(-time.Duration(consts.MeetingReleaseGraceHours)*time.Hour)) {
+	if !in.StartAt.After(now) {
 		status = consts.MeetingStatusOngoing
+	}
+	typeId := int64(0)
+	if in.TypeId != nil {
+		typeId = *in.TypeId
 	}
 	roomName, err := generateRoomName()
 	if err != nil {
@@ -650,6 +764,7 @@ func (s *sSysMeeting) AdminEdit(ctx context.Context, in *sysin.AdminMeetingEditI
 		"created_at":     now,
 		"updated_at":     now,
 		"record_enabled": boolToTiny(in.RecordEnabled),
+		"type_id":        typeId,
 	}).Insert()
 	if err != nil {
 		return gerror.Wrap(err, "创建会议失败")
@@ -720,7 +835,56 @@ func toAdminMeetingItem(m *entity.Meeting) *sysin.AdminMeetingListModel {
 		ReleasedAt:    m.ReleasedAt,
 		Attendees:     item.Attendees,
 		RecordEnabled: item.RecordEnabled,
+		TypeId:        item.TypeId,
 		Recordings:    item.Recordings,
+	}
+}
+
+// attachMeetingTypeNames 回填会议类型名称（一次批量查询，避免 N+1）
+func attachMeetingTypeNames(ctx context.Context, list []*sysin.MeetingItemModel) {
+	if len(list) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(list))
+	for _, item := range list {
+		if item != nil && item.TypeId > 0 {
+			ids = append(ids, item.TypeId)
+		}
+	}
+	names, err := service.SysMeetingType().NamesByIDs(ctx, ids)
+	if err != nil {
+		g.Log().Warningf(ctx, "attach meeting type names failed: %+v", err)
+		return
+	}
+	for _, item := range list {
+		if item == nil {
+			continue
+		}
+		item.TypeName = names[item.TypeId]
+	}
+}
+
+// attachAdminMeetingTypeNames 回填管理端会议列表的会议类型名称
+func attachAdminMeetingTypeNames(ctx context.Context, list []*sysin.AdminMeetingListModel) {
+	if len(list) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(list))
+	for _, item := range list {
+		if item != nil && item.TypeId > 0 {
+			ids = append(ids, item.TypeId)
+		}
+	}
+	names, err := service.SysMeetingType().NamesByIDs(ctx, ids)
+	if err != nil {
+		g.Log().Warningf(ctx, "attach admin meeting type names failed: %+v", err)
+		return
+	}
+	for _, item := range list {
+		if item == nil {
+			continue
+		}
+		item.TypeName = names[item.TypeId]
 	}
 }
 

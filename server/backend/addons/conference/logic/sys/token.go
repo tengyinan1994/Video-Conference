@@ -128,8 +128,15 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 	if err = service.SysMeeting().AppendAttendee(ctx, meeting.RoomName, in.Nickname); err != nil {
 		g.Log().Warningf(ctx, "append attendee on token create failed room=%s nick=%s err=%+v", meeting.RoomName, in.Nickname, err)
 	}
+	// 首个参会者刚可能记录了实际开始时间 started_at，重新读取后随 Token 返回，
+	// 保证先入会的人与后入会的人使用同一个计时起点。
+	if fresh, readErr := service.SysMeeting().GetByRoomName(ctx, meeting.RoomName); readErr == nil && fresh != nil {
+		meeting = fresh
+	}
 
-	if isHost && meeting.RecordEnabled != 0 {
+	// 只要会议开启了录制，第一个真人进房（进房必经拿 token）即自动开录；
+	// 不再要求主持人进房，避免发起人未入会时整场会议无录制。
+	if meeting.RecordEnabled != 0 {
 		uid := int64(0)
 		if user != nil {
 			uid = user.Id
@@ -150,6 +157,8 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 		IsHost:          isHost,
 		RecordEnabled:   meeting.RecordEnabled != 0,
 		RecordingActive: hasActiveRecording(ctx, meeting.Id),
+		StartAt:         meeting.StartAt,
+		ActualStartAt:   meeting.StartedAt,
 	}
 	return
 }

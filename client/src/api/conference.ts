@@ -13,6 +13,10 @@ export interface TokenCreateResult {
   isHost: boolean
   recordEnabled?: boolean
   recordingActive?: boolean
+  /** 会议预定开始时间；房间内「已进行」时长以此为起点累计 */
+  startAt?: string
+  /** 实际开始时间（首个参会者提前入会时记录）；为空则计时以 startAt 为起点 */
+  actualStartAt?: string
 }
 
 export interface MuteAllResult {
@@ -30,6 +34,7 @@ export interface MeetingItem {
   hostId: number
   hostName: string
   startAt: string
+  actualStartAt?: string
   endAt: string
   status: string
   shareCode: string
@@ -38,7 +43,16 @@ export interface MeetingItem {
   tab: string
   attendees?: string[]
   recordEnabled?: boolean
+  /** 会议类型ID，0=未分类 */
+  typeId?: number
+  /** 会议类型名称，未分类为空 */
+  typeName?: string
   recordings?: RecordingSegment[]
+}
+
+export interface MeetingTypeOption {
+  id: number
+  name: string
 }
 
 export interface RecordingSegment {
@@ -114,6 +128,13 @@ export function listMeetings(tab: 'all' | 'ongoing' | 'scheduled' | 'ended' = 'a
   })
 }
 
+/** 管理端维护的会议类型选项（会议列表筛选与新建会议下拉） */
+export function listMeetingTypes() {
+  return request<{ list: MeetingTypeOption[] }>('/api/conference/meetingType/options', {
+    method: 'GET',
+  })
+}
+
 export function createMeeting(payload: {
   title: string
   hostId?: number
@@ -121,6 +142,8 @@ export function createMeeting(payload: {
   startAt: string
   endAt: string
   recordEnabled?: boolean
+  /** 会议类型ID，非必选，0=未分类 */
+  typeId?: number
 }) {
   return request<MeetingItem>('/api/conference/meeting/create', {
     method: 'POST',
@@ -147,6 +170,8 @@ export function updateMeeting(payload: {
   title: string
   startAt: string
   endAt: string
+  /** 会议类型ID，0=未分类；不传表示不改 */
+  typeId?: number
 }) {
   return request<MeetingItem>('/api/conference/meeting/update', {
     method: 'POST',

@@ -82,6 +82,14 @@ func HandleLiveKitWebhook(r *ghttp.Request) {
 			r.Response.WriteStatus(500)
 			return
 		}
+		// 第一个真人真正进房（participant_joined）即尝试自动开录。
+		// 与 token 创建时触发互为兜底：本机 --dev 常无 webhook，但部署环境有 webhook。
+		// TryAutoStart 内部会检查是否存在进行中录制，重复触发幂等跳过。
+		if meeting, gErr := service.SysMeeting().GetByRoomName(ctx, room); gErr == nil && meeting != nil {
+			if autoErr := service.SysRecording().TryAutoStart(ctx, meeting, 0); autoErr != nil {
+				g.Log().Warningf(ctx, "conference webhook auto-start recording failed room=%s err=%+v", room, autoErr)
+			}
+		}
 		r.Response.WriteStatus(200)
 		return
 	default:

@@ -9,6 +9,7 @@ import (
 	"hotgo/addons/conference/consts"
 
 	"github.com/gogf/gf/v2/errors/gerror"
+	"github.com/gogf/gf/v2/os/gtime"
 )
 
 var roomNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
@@ -51,14 +52,16 @@ func (in *TokenCreateInp) Filter(ctx context.Context) (err error) {
 
 // TokenCreateModel 创建会议 Token 出参
 type TokenCreateModel struct {
-	ServerUrl string `json:"serverUrl" dc:"LiveKit 服务地址"`
-	Room      string `json:"room" dc:"房间名"`
-	Title     string `json:"title" dc:"会议名称"`
-	Identity  string `json:"identity" dc:"参与者身份（服务端生成）"`
-	Nickname  string `json:"nickname" dc:"显示昵称"`
-	Token     string `json:"token" dc:"进房 JWT"`
-	ExpiresAt        int64 `json:"expiresAt" dc:"过期时间戳（秒）"`
-	IsHost           bool  `json:"isHost" dc:"是否为本房间主持人"`
-	RecordEnabled    bool  `json:"recordEnabled" dc:"会议是否开启自动录制"`
-	RecordingActive  bool  `json:"recordingActive" dc:"当前是否已有进行中的录制"`
+	ServerUrl       string      `json:"serverUrl" dc:"LiveKit 服务地址"`
+	Room            string      `json:"room" dc:"房间名"`
+	Title           string      `json:"title" dc:"会议名称"`
+	Identity        string      `json:"identity" dc:"参与者身份（服务端生成）"`
+	Nickname        string      `json:"nickname" dc:"显示昵称"`
+	Token           string      `json:"token" dc:"进房 JWT"`
+	ExpiresAt       int64       `json:"expiresAt" dc:"过期时间戳（秒）"`
+	IsHost          bool        `json:"isHost" dc:"是否为本房间主持人"`
+	RecordEnabled   bool        `json:"recordEnabled" dc:"会议是否开启自动录制"`
+	RecordingActive bool        `json:"recordingActive" dc:"当前是否已有进行中的录制"`
+	StartAt         *gtime.Time `json:"startAt" dc:"会议预定开始时间"`
+	ActualStartAt   *gtime.Time `json:"actualStartAt" dc:"实际开始时间（首个参会者提前入会时记录；为空则计时以 startAt 为准）"`
 }

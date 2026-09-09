@@ -49,7 +49,7 @@ export const columns = [
     },
   },
   {
-    title: '备注',
+    title: '排序',
     key: 'sort',
     width: 150,
   },

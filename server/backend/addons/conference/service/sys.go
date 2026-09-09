@@ -57,14 +57,28 @@ type (
 		Logout(ctx context.Context) (err error)
 		Me(ctx context.Context) (res *sysin.AuthMeModel, err error)
 	}
+	ISysMeetingType interface {
+		// Options 会议类型选项（会议端下拉、管理端会议编辑下拉）
+		Options(ctx context.Context) (list []*sysin.MeetingTypeOptionModel, err error)
+		// NamesByIDs 按类型ID批量取名称（列表展示用，避免 N+1）
+		NamesByIDs(ctx context.Context, ids []int64) (names map[int64]string, err error)
+		// AssertExists 校验类型是否存在（id<=0 视为未分类，直接通过）
+		AssertExists(ctx context.Context, id int64) (err error)
+		// 管理端
+		AdminList(ctx context.Context, in *sysin.AdminMeetingTypeListInp) (list []*sysin.AdminMeetingTypeListModel, totalCount int, err error)
+		AdminView(ctx context.Context, in *sysin.AdminMeetingTypeViewInp) (res *sysin.AdminMeetingTypeViewModel, err error)
+		AdminEdit(ctx context.Context, in *sysin.AdminMeetingTypeEditInp) (err error)
+		AdminDelete(ctx context.Context, in *sysin.AdminMeetingTypeDeleteInp) (err error)
+	}
 )
 
 var (
-	localSysToken     ISysToken
-	localSysRoom      ISysRoom
-	localSysMeeting   ISysMeeting
-	localSysAuth      ISysAuth
-	localSysRecording ISysRecording
+	localSysToken       ISysToken
+	localSysRoom        ISysRoom
+	localSysMeeting     ISysMeeting
+	localSysAuth        ISysAuth
+	localSysRecording   ISysRecording
+	localSysMeetingType ISysMeetingType
 )
 
 func SysToken() ISysToken {
@@ -120,4 +134,15 @@ func SysRecording() ISysRecording {
 
 func RegisterSysRecording(i ISysRecording) {
 	localSysRecording = i
+}
+
+func SysMeetingType() ISysMeetingType {
+	if localSysMeetingType == nil {
+		panic("implement not found for interface ISysMeetingType, forgot register?")
+	}
+	return localSysMeetingType
+}
+
+func RegisterSysMeetingType(i ISysMeetingType) {
+	localSysMeetingType = i
 }

@@ -14,12 +14,14 @@
             <n-tree
               block-line
               checkable
+              cascade
               check-on-click
               default-expand-all
               virtual-scroll
               :data="treeData"
               :pattern="pattern"
               :filter="filterTreeNode"
+              :check-strategy="'all'"
               :expandedKeys="expandedKeys"
               :checked-keys="checkedKeys"
               style="max-height: 950px; overflow: hidden"
@@ -129,8 +131,39 @@
       });
   }
 
+  // 收集一个节点及其所有子孙节点的 key
+  function collectSubtreeKeys(node: any): any[] {
+    const keys: any[] = [node.key];
+    if (node.children && node.children.length) {
+      node.children.forEach((child) => {
+        keys.push(...collectSubtreeKeys(child));
+      });
+    }
+    return keys;
+  }
+
+  // 级联修正勾选集合：只要某个节点处于勾选状态，其所有子孙节点必须一并勾选，
+  // 保证点击父级模块复选框时，下级子复选框全部选中（体验更符合预期）。
+  function cascadeCheckedKeys(tree: any[], keys: any[]): any[] {
+    const keySet = new Set(keys || []);
+    const walk = (nodes: any[]) => {
+      nodes.forEach((node) => {
+        if (keySet.has(node.key) && node.children && node.children.length) {
+          node.children.forEach((child) => {
+            collectSubtreeKeys(child).forEach((childKey) => keySet.add(childKey));
+          });
+        }
+        if (node.children && node.children.length) {
+          walk(node.children);
+        }
+      });
+    };
+    walk(tree || []);
+    return Array.from(keySet);
+  }
+
   function checkedTree(keys) {
-    checkedKeys.value = keys;
+    checkedKeys.value = cascadeCheckedKeys(treeData.value, keys ?? []);
   }
 
   function onExpandedKeys(keys) {
@@ -195,7 +228,7 @@
     checkedKeys.value = [];
     checkedAll.value = false;
     const res = await GetPermissions({ id: id });
-    checkedKeys.value = res.menuIds;
+    checkedKeys.value = cascadeCheckedKeys(treeData.value, res.menuIds);
   }
 
   async function loadDataList() {

@@ -36,8 +36,19 @@ const meetingTime = computed(() => {
   const end = m.endAt ? dayjs(m.endAt) : null
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
   const date = `${start.format('YYYY年M月D日')} 周${weekdays[start.day()]}`
-  const range = end ? `${start.format('HH:mm')} – ${end.format('HH:mm')}` : start.format('HH:mm')
+  const range = end
+    ? end.isSame(start, 'day')
+      ? `${start.format('HH:mm')} – ${end.format('HH:mm')}`
+      : `${start.format('HH:mm')} – ${end.format('YYYY年M月D日')} ${end.format('HH:mm')}`
+    : start.format('HH:mm')
   return `${date} ${range}`
+})
+
+/** 未到可进窗口（开始前 5 分钟） */
+const notStartedYet = computed(() => {
+  const m = info.value
+  if (!m || m.canJoin || !m.startAt) return false
+  return dayjs(m.startAt).subtract(5, 'minute').isAfter(dayjs())
 })
 
 /** 刷新登录用户姓名：登录响应未必带 realName，进会前强制拉一次，避免显示成用户名 */
@@ -79,7 +90,7 @@ async function onJoin() {
     return
   }
   if (!info.value?.canJoin) {
-    message.error('当前会议不可加入')
+    message.error(notStartedYet.value ? '会议尚未开始' : '当前会议不可加入')
     return
   }
   loading.value = true
@@ -103,6 +114,8 @@ async function onJoin() {
       shareCode: shareCode.value,
       recordEnabled: !!data.recordEnabled,
       recordingActive: !!data.recordingActive,
+      startAt: data.startAt || info.value?.startAt,
+      actualStartAt: data.actualStartAt,
     })
     await router.push({ name: 'room', params: { room: data.room } })
   } catch (err) {
@@ -158,7 +171,9 @@ onMounted(() => {
               {{ info.hostName }}
             </p>
             <p v-if="meetingTime" class="meta-time">{{ meetingTime }}</p>
-            <p v-if="!info.canJoin" class="meta-warn">该会议已不可加入</p>
+            <p v-if="!info.canJoin" class="meta-warn">
+              {{ notStartedYet ? '会议尚未开始，可提前 5 分钟进入' : '该会议已不可加入' }}
+            </p>
           </header>
 
           <Form class="join-form" :model="form" layout="vertical" @finish="onJoin">

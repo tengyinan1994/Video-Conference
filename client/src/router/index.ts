@@ -4,6 +4,7 @@ import JoinView from '@/views/JoinView.vue'
 import LobbyView from '@/views/LobbyView.vue'
 import LoginView from '@/views/LoginView.vue'
 import RoomView from '@/views/RoomView.vue'
+import EgressView from '@/views/EgressView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -17,6 +18,9 @@ const router = createRouter({
       meta: { public: true },
     },
     { path: '/room/:room', name: 'room', component: RoomView },
+    // LiveKit 录制模板：egress 会以 ?url=&token=&layout= 打开此页，无需登录态。
+    // egress 打开的是 /egress?url=...（无 room 段），故 :room 设为可选。
+    { path: '/egress/:room?', name: 'egress', component: EgressView },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

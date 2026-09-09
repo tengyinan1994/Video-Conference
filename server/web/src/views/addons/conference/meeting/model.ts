@@ -1,11 +1,10 @@
-import { h, ref } from 'vue';
+import { ref } from 'vue';
 import { cloneDeep } from 'lodash-es';
 import { FormSchema } from '@/components/Form';
 import { defRangeShortcuts } from '@/utils/dateUtil';
 import { renderOptionTag } from '@/utils';
 import { useDictStore } from '@/store/modules/dict';
 import type { FormRules } from 'naive-ui/es/form/src/interface';
-import { recordingProxyUrl } from '@/api/addons/conference/meeting';
 
 const dict = useDictStore();
 
@@ -26,6 +25,12 @@ export class State {
   public updatedAt = '';
   public releasedAt = '';
   public recordEnabled = false;
+  /** 会议类型ID，0=未分类 */
+  public typeId = 0;
+  /** 会议类型名称，未分类为空 */
+  public typeName = '';
+  /** 参会显示名去重列表 */
+  public attendees: string[] = [];
   public recordings: Array<{
     id: number;
     seq: number;
@@ -120,24 +125,6 @@ export const schemas = ref<FormSchema[]>([
   },
 ]);
 
-/** 录制分段状态 → 中文文案 */
-function recordingStatusText(status: string): string {
-  switch (status) {
-    case 'starting':
-      return '开始中';
-    case 'active':
-      return '录制中';
-    case 'stopping':
-      return '停止中';
-    case 'complete':
-      return '无文件';
-    case 'failed':
-      return '失败';
-    default:
-      return status || '处理中';
-  }
-}
-
 export const columns = [
   {
     title: 'ID',
@@ -148,6 +135,14 @@ export const columns = [
     title: '会议名称',
     key: 'title',
     width: 180,
+  },
+  {
+    title: '会议类型',
+    key: 'typeName',
+    width: 140,
+    render(row) {
+      return row.typeName || '未分类';
+    },
   },
   {
     title: '主持人',
@@ -171,57 +166,6 @@ export const columns = [
     title: '结束时间',
     key: 'endAt',
     width: 180,
-  },
-  {
-    title: '房间名',
-    key: 'roomName',
-    width: 160,
-  },
-  {
-    title: '分享码',
-    key: 'shareCode',
-    width: 140,
-  },
-  {
-    title: '录制',
-    key: 'recordings',
-    width: 240,
-    render(row) {
-      const segs = Array.isArray(row.recordings) ? row.recordings : [];
-      if (!segs.length) {
-        return row.recordEnabled ? '已开启（暂无文件）' : '未开启';
-      }
-      return h(
-        'div',
-        { style: 'display:flex;flex-wrap:wrap;gap:6px 10px;' },
-        segs.map((seg) => {
-          if (seg.status === 'complete' && seg.id) {
-            const play = h(
-              'a',
-              {
-                href: recordingProxyUrl('play', seg.id),
-                target: '_blank',
-                rel: 'noopener',
-                style: 'margin-right:8px',
-              },
-              `第${seg.seq}段回放`
-            );
-            const download = h(
-              'a',
-              {
-                href: recordingProxyUrl('download', seg.id),
-                download: `recording-${row.id}-${seg.seq}.mp4`,
-                rel: 'noopener',
-              },
-              '下载'
-            );
-            return h('span', { style: 'margin-right:10px' }, [play, download]);
-          }
-          const label = `第${seg.seq}段(${recordingStatusText(seg.status)})`;
-          return h('span', label);
-        })
-      );
-    },
   },
   {
     title: '创建时间',

@@ -117,25 +117,39 @@ const inviteInfo = ref<MeetingShareView | null>(null)
 let recordingPollTimer: ReturnType<typeof setInterval> | null = null
 /** 是否已取得一次可靠的录制状态快照（用于边沿检测，避免进房时误报） */
 let recordingStatusInited = false
+/** 是否已提示过「会议正在录制」（新进成员进房时提示一次，避免轮询重复弹） */
+let joinRecordingNotified = false
 
 // —— 会议已进行时长（正向计时）——
-// 以本端首次成功进房为起点，把起点写进 sessionStorage（按房间 key），
-// 这样刷新页面/短暂重连后计时不会归零，仍延续同一场会议的时长。
+// 计时起点 = actualStartAt ?? startAt：首个参会者提前入会时后端记录 actualStartAt，
+// 从入会那一刻起累计；无人提前入会则按预定开始时间 startAt 到点起算；
+// 两者都没有时退回本端首次进房时刻（localStorage）。大厅「已进行」进度也是同一套语义。
 let meetingTimer: ReturnType<typeof setInterval> | null = null
 const meetingStartAt = ref<number | null>(null)
 const meetingElapsed = ref(0)
 
 const meetingStartKey = computed(() => `vc.meetingStart.${String(route.params.room)}`)
 
-function ensureMeetingStart() {
-  if (meetingStartAt.value != null) return
-  const persisted = Number(sessionStorage.getItem(meetingStartKey.value))
-  if (persisted > 0) {
-    meetingStartAt.value = persisted
-  } else {
-    meetingStartAt.value = Date.now()
-    sessionStorage.setItem(meetingStartKey.value, String(meetingStartAt.value))
+function resolveMeetingStartMs(): number {
+  const actualStart = session.value?.actualStartAt
+  if (actualStart) {
+    const ms = dayjs(actualStart).valueOf()
+    if (Number.isFinite(ms) && ms > 0) return ms
   }
+  const fromSession = session.value?.startAt
+  if (fromSession) {
+    const ms = dayjs(fromSession).valueOf()
+    if (Number.isFinite(ms) && ms > 0) return ms
+  }
+  const persisted = Number(localStorage.getItem(meetingStartKey.value))
+  if (persisted > 0) return persisted
+  const now = Date.now()
+  localStorage.setItem(meetingStartKey.value, String(now))
+  return now
+}
+
+function ensureMeetingStart() {
+  meetingStartAt.value = resolveMeetingStartMs()
 }
 
 function tickMeetingElapsed() {
@@ -244,6 +258,8 @@ const statusTagColor = computed(() => {
 
 const isHost = computed(() => !!session.value?.isHost)
 const canInvite = computed(() => !!session.value?.shareCode)
+/** 终态：会议已结束或被移出，不可再重新连接（重复进房只会重建已删除的房间） */
+const isTerminal = computed(() => status.value === 'ended' || status.value === 'kicked')
 
 const inviteTime = computed(() => {
   const m = inviteInfo.value
@@ -252,7 +268,11 @@ const inviteTime = computed(() => {
   const end = m.endAt ? dayjs(m.endAt) : null
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
   const date = `${start.format('YYYY年M月D日')} 周${weekdays[start.day()]}`
-  const range = end ? `${start.format('HH:mm')} – ${end.format('HH:mm')}` : start.format('HH:mm')
+  const range = end
+    ? end.isSame(start, 'day')
+      ? `${start.format('HH:mm')} – ${end.format('HH:mm')}`
+      : `${start.format('HH:mm')} – ${end.format('YYYY年M月D日')} ${end.format('HH:mm')}`
+    : start.format('HH:mm')
   let duration = ''
   if (end) {
     const mins = end.diff(start, 'minute')
@@ -413,6 +433,8 @@ async function refreshSessionToken(parsed: SessionPayload): Promise<SessionPaylo
       isHost: !!data.isHost,
       recordEnabled: !!data.recordEnabled,
       recordingActive: !!data.recordingActive,
+      startAt: data.startAt || parsed.startAt,
+      actualStartAt: data.actualStartAt || parsed.actualStartAt,
     }
     writeMeetingSession(next)
     return next
@@ -436,15 +458,16 @@ async function enter() {
     await leaveToEntry()
     return
   }
-  if (parsed.expiresAt * 1000 < Date.now()) {
-    const renewed = await refreshSessionToken(parsed)
-    if (!renewed) {
-      removeMeetingSession(room)
-      await leaveToEntry(parsed)
-      return
-    }
-    parsed = renewed
+  // 进房前始终向后端重新校验会议是否仍可加入并换取新凭证（createToken 会走 assertJoinable）。
+  // 不能只信任本地未过期的缓存 Token：主持人结束会议后 LiveKit 房间已被删除，
+  // 复用旧 Token 会被 LiveKit 按 Token 重建房间，导致「已结束的会议仍能连接并继续计时」。
+  const renewed = await refreshSessionToken(parsed)
+  if (!renewed) {
+    removeMeetingSession(room)
+    await leaveToEntry(parsed)
+    return
   }
+  parsed = renewed
   session.value = parsed
   recordingActive.value = !!parsed.recordingActive
   chatUnread.value = 0
@@ -485,6 +508,14 @@ async function enter() {
 
 async function retryEnter() {
   if (joining.value || status.value === 'connecting') return
+  if (status.value === 'ended') {
+    message.warning('会议已结束，无法重新连接')
+    return
+  }
+  if (status.value === 'kicked') {
+    message.warning('你已被主持人移出会议，无法重新连接')
+    return
+  }
   await enter()
 }
 
@@ -623,7 +654,13 @@ async function refreshRecordingStatus() {
     const res = await recordingStatus({ room: session.value.room })
     if (recordingActing.value) return
     const active = !!res.active
-    // 录制状态跨端边沿检测：进房首轮（recordingStatusInited=false）不判，避免对已在录制中的状态误报；
+    // 新进会议成员：拿到首个可靠状态后，若会议正在录制则提示一次「会议正在录制」；
+    // 仅在进房首轮（recordingStatusInited=false）判定，避免轮询重复弹，也避免与会中「开始/停止」边沿混用。
+    if (!recordingStatusInited && active && !joinRecordingNotified) {
+      message.warning('会议正在录制')
+      joinRecordingNotified = true
+    }
+    // 录制状态跨端边沿检测：进房首轮（recordingStatusInited=false）只处理上面的「进房即在录制」提示，不判边沿；
     // 本机主持人由 onToggleRecording 点击即时提示，轮询跳过避免双报；其余参会者补上「开始/停止录制」提示。
     if (recordingStatusInited && active !== recordingActive.value && !isHost.value) {
       message.success(active ? '已开始录制' : '已停止录制')
@@ -809,9 +846,10 @@ onBeforeUnmount(() => {
       class="banner"
     >
       <template #action>
-        <Button size="small" type="primary" :loading="joining" @click="retryEnter">
+        <Button v-if="!isTerminal" size="small" type="primary" :loading="joining" @click="retryEnter">
           重新连接
         </Button>
+        <Button v-else size="small" type="primary" @click="leave">离开会议</Button>
       </template>
     </Alert>
     <Alert

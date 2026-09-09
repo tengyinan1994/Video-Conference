@@ -1,8 +1,8 @@
 <template>
   <div>
     <div class="n-layout-page-header">
-      <n-card :bordered="false" title="会议管理">
-        管理员可查看全部会议，并查看会议详情（含录制与参会人员）、编辑、结束或删除。
+      <n-card :bordered="false" title="会议类型">
+        维护会议类型（仅名称）。会议端新建会议时可选择类型，会议列表也会标注类型。
       </n-card>
     </div>
     <n-card :bordered="false" class="proCard">
@@ -30,7 +30,7 @@
           <n-button
             type="primary"
             class="min-left-space"
-            v-if="hasPermission(['/conference/meeting/edit'])"
+            v-if="hasPermission(['/conference/meetingType/edit'])"
             @click="addTable"
           >
             <template #icon>
@@ -38,12 +38,12 @@
                 <PlusOutlined />
               </n-icon>
             </template>
-            新建会议
+            新建类型
           </n-button>
           <n-button
             type="error"
             class="min-left-space"
-            v-if="hasPermission(['/conference/meeting/delete'])"
+            v-if="hasPermission(['/conference/meetingType/delete'])"
             @click="handleBatchDelete"
           >
             <template #icon>
@@ -57,22 +57,20 @@
       </BasicTable>
     </n-card>
     <Edit ref="editRef" @reloadTable="reloadTable" />
-    <Detail ref="detailRef" />
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { h, reactive, ref, computed, onMounted } from 'vue';
+  import { h, reactive, ref, computed } from 'vue';
   import { useDialog, useMessage } from 'naive-ui';
   import { BasicTable, TableAction } from '@/components/Table';
   import { BasicForm, useForm } from '@/components/Form/index';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { List, Delete, Release } from '@/api/addons/conference/meeting';
+  import { List, Delete } from '@/api/addons/conference/meetingType';
   import { PlusOutlined, DeleteOutlined } from '@vicons/antd';
-  import { columns, schemas, loadOptions } from './model';
+  import { columns, schemas } from './model';
   import { adaTableScrollX } from '@/utils/hotgo';
   import Edit from './edit.vue';
-  import Detail from './detail.vue';
 
   const dialog = useDialog();
   const message = useMessage();
@@ -80,11 +78,10 @@
   const actionRef = ref();
   const searchFormRef = ref<any>({});
   const editRef = ref();
-  const detailRef = ref();
   const checkedIds = ref([]);
 
   const actionColumn = reactive({
-    width: 260,
+    width: 160,
     title: '操作',
     key: 'action',
     fixed: 'right',
@@ -92,40 +89,22 @@
       return h(TableAction as any, {
         style: 'button',
         actions: [
-          // 详情：所有状态都可查看（含录制/参会人员；只读，不额外鉴权）
-          {
-            label: '详情',
-            onClick: handleView.bind(null, record),
-          },
-          // 编辑：预定、已结束 可改；进行中只允许结束，不显示编辑
           {
             label: '编辑',
             onClick: handleEdit.bind(null, record),
-            ifShow: () => record.status !== 'ongoing',
-            auth: ['/conference/meeting/edit'],
+            auth: ['/conference/meetingType/edit'],
           },
-          // 结束：仅进行中显示
-          {
-            label: '结束',
-            onClick: handleRelease.bind(null, record),
-            ifShow: () => record.status === 'ongoing',
-            auth: ['/conference/meeting/release'],
-          },
-          // 删除：预定、已结束 可删（取消并入删除）；进行中不显示删除
           {
             label: '删除',
             onClick: handleDelete.bind(null, record),
-            ifShow: () => record.status !== 'ongoing',
-            auth: ['/conference/meeting/delete'],
+            auth: ['/conference/meetingType/delete'],
           },
         ],
       });
     },
   });
 
-  const scrollX = computed(() => {
-    return adaTableScrollX(columns, actionColumn.width);
-  });
+  const scrollX = computed(() => adaTableScrollX(columns, actionColumn.width));
 
   const [register, {}] = useForm({
     gridProps: { cols: '1 s:1 m:2 l:3 xl:4 2xl:4' },
@@ -158,14 +137,10 @@
     editRef.value.openModal(record);
   }
 
-  function handleView(record: Recordable) {
-    detailRef.value?.openModal(record);
-  }
-
   function handleDelete(record: Recordable) {
     dialog.warning({
       title: '警告',
-      content: `确定删除会议「${record.title}」？删除后不可恢复。`,
+      content: `确定删除会议类型「${record.name}」？删除后不可恢复。`,
       positiveText: '确定',
       negativeText: '取消',
       onPositiveClick: () => {
@@ -189,7 +164,7 @@
     }
     dialog.warning({
       title: '警告',
-      content: `确定批量删除选中的 ${ids.length} 场会议？删除后不可恢复。`,
+      content: `确定批量删除选中的 ${ids.length} 个会议类型？删除后不可恢复。`,
       positiveText: '确定',
       negativeText: '取消',
       onPositiveClick: () => {
@@ -201,25 +176,6 @@
       },
     });
   }
-
-  function handleRelease(record: Recordable) {
-    dialog.warning({
-      title: '结束会议',
-      content: `确定结束会议「${record.title}」？结束后将保留历史记录。`,
-      positiveText: '确定',
-      negativeText: '取消',
-      onPositiveClick: () => {
-        Release({ id: record.id }).then(() => {
-          message.success('会议已结束');
-          reloadTable();
-        });
-      },
-    });
-  }
-
-  onMounted(() => {
-    loadOptions();
-  });
 </script>
 
 <style lang="less" scoped></style>

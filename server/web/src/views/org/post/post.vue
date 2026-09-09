@@ -262,7 +262,7 @@
           setTimeout(() => {
             showModal.value = false;
             reloadTable();
-            formParams.value = ref(resetFormParams);
+            formParams.value = cloneDeep(resetFormParams);
           });
         });
       } else {
@@ -274,7 +274,7 @@
 
   function handleEdit(record: Recordable) {
     showModal.value = true;
-    formParams.value = record;
+    formParams.value = cloneDeep(record);
   }
 
   function handleDelete(record: Recordable) {

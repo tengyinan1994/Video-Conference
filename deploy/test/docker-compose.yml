@@ -27,6 +27,8 @@ services:
       - ./init/04-conference-menu.sql:/docker-entrypoint-initdb.d/04-conference-menu.sql:ro
       - ./init/05-conference-meeting-attendees.sql:/docker-entrypoint-initdb.d/05-conference-meeting-attendees.sql:ro
       - ./init/06-conference-recording.sql:/docker-entrypoint-initdb.d/06-conference-recording.sql:ro
+      - ./init/07-conference-meeting-actual-start.sql:/docker-entrypoint-initdb.d/07-conference-meeting-actual-start.sql:ro
+      - ./init/08-conference-meeting-type.sql:/docker-entrypoint-initdb.d/08-conference-meeting-type.sql:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci

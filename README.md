@@ -25,7 +25,8 @@
    - 录制：`docker compose -f deploy/dev/docker-compose.yml --env-file deploy/dev/.env up -d rustfs`，再 `./deploy/dev/start-egress-when-ready.sh`
 4. HotGo：`cd server/backend && air`
 5. 客户端：`cd client && pnpm dev` → <https://127.0.0.1:5173>
-6. 已有库补字段：执行 `deploy/test/init/05-conference-meeting-attendees.sql`
+6. 已有库补字段/菜单：按序执行 `deploy/test/init/` 下缺的增量脚本
+   （如 `05-conference-meeting-attendees.sql`、`07-conference-meeting-actual-start.sql`、`08-conference-meeting-type.sql`）
 
 开发模式客户端走 Vite 代理 `/rtc` → `127.0.0.1:7880`，后端 `livekit.url` 换网时通常不用改。
 

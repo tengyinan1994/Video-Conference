@@ -1,19 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Button,
   DatePicker,
+  Dropdown,
   Empty,
   Form,
   Input,
   Modal,
+  Select,
   Switch,
   message,
 } from 'ant-design-vue'
 import {
   CalendarOutlined,
+  CheckOutlined,
   ClockCircleOutlined,
+  CloseOutlined,
   CopyOutlined,
   EditOutlined,
   HistoryOutlined,
@@ -21,6 +25,7 @@ import {
   LogoutOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   UserAddOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons-vue'
@@ -33,11 +38,13 @@ import {
   deleteMeeting,
   endMeeting,
   listMeetings,
+  listMeetingTypes,
   updateMeeting,
   downloadRecordingFile,
   recordingPlaySrc,
   recordingStatus,
   type MeetingItem,
+  type MeetingTypeOption,
   type RecordingSegment,
 } from '@/api/conference'
 import { clearAuth, displayName, getAuth, setAuth, subscribeAuth } from '@/stores/auth'
@@ -45,6 +52,9 @@ import { ApiError } from '@/utils/request'
 import { writeMeetingSession } from '@/utils/meetingSession'
 
 type FilterKey = 'all' | 'ongoing' | 'host' | 'joined'
+
+/** 未分类筛选项的伪 ID（与后端 type_id=0 对应） */
+const NO_TYPE_ID = 0
 
 const router = useRouter()
 const loading = ref(false)
@@ -61,6 +71,23 @@ const playError = ref('')
 const meetings = ref<MeetingItem[]>([])
 const userLabel = ref(displayName())
 const filter = ref<FilterKey>('all')
+/** 会议类型选项（管理端维护） */
+const meetingTypes = ref<MeetingTypeOption[]>([])
+/** 列表标题处多选的类型筛选（空=全部） */
+const selectedTypeIdsRaw = ref<number[]>([])
+const selectedTypeIds = computed<number[]>({
+  get: () => selectedTypeIdsRaw.value,
+  set: (value) => {
+    // 多选清空时组件可能回传 undefined，统一归一为空数组
+    selectedTypeIdsRaw.value = Array.isArray(value) ? value : []
+  },
+})
+/** 类型下拉展开态（用于箭头旋转） */
+const typeFilterOpen = ref(false)
+/** 顶栏搜索：展开态与关键词（按会议名称模糊匹配） */
+const searchOpen = ref(false)
+const searchKeyword = ref('')
+const searchInputRef = ref<{ focus?: () => void } | null>(null)
 
 type InviteKind = 'guest' | 'member'
 
@@ -73,6 +100,7 @@ const createForm = reactive({
   startAt: undefined as Dayjs | undefined,
   endAt: undefined as Dayjs | undefined,
   recordEnabled: false,
+  typeId: undefined as number | undefined,
 })
 
 const editForm = reactive({
@@ -80,6 +108,7 @@ const editForm = reactive({
   title: '',
   startAt: undefined as Dayjs | undefined,
   endAt: undefined as Dayjs | undefined,
+  typeId: undefined as number | undefined,
 })
 
 const sortedMeetings = computed(() => {
@@ -87,6 +116,66 @@ const sortedMeetings = computed(() => {
   list.sort((a, b) => dayjs(b.startAt).valueOf() - dayjs(a.startAt).valueOf())
   return list
 })
+
+/** 列表标题处类型多选选项：管理端维护的类型 + 「未分类」 */
+const typeFilterOptions = computed(() => [
+  { value: NO_TYPE_ID, label: '未分类' },
+  ...meetingTypes.value.map((t) => ({ value: t.id, label: t.name })),
+])
+
+/** 新建/编辑会议弹窗的类型选项（不含「未分类」，不选即为未分类） */
+const typeFormOptions = computed(() =>
+  meetingTypes.value.map((t) => ({ value: t.id, label: t.name })),
+)
+
+/** 类型配色数量（与 style 中的 .type-c0 ~ .type-c9 对应） */
+const TYPE_COLOR_COUNT = 10
+
+/**
+ * 会议类型配色类名：同一类型在筛选标签、下拉项、列表标签上颜色一致。
+ * 按类型ID取模，保证相邻类型颜色不同；0（未分类）用中性灰。
+ */
+function typeClass(typeId?: number) {
+  const id = Number(typeId ?? NO_TYPE_ID)
+  if (!Number.isFinite(id) || id <= 0) return 'type-none'
+  return `type-c${Math.abs(id) % TYPE_COLOR_COUNT}`
+}
+
+/** 已选类型（保持与选项一致的顺序） */
+const selectedTypeTags = computed(() =>
+  typeFilterOptions.value.filter((o) => selectedTypeIds.value.includes(o.value)),
+)
+
+/** 标题行最多展示的已选标签数，超出用 +N 收起 */
+const TYPE_TAG_LIMIT = 3
+const visibleTypeTags = computed(() => selectedTypeTags.value.slice(0, TYPE_TAG_LIMIT))
+const hiddenTypeTagCount = computed(() =>
+  Math.max(0, selectedTypeTags.value.length - TYPE_TAG_LIMIT),
+)
+
+/** 点选/取消一个会议类型（多选，不关闭面板） */
+function toggleTypeFilter(typeId: number) {
+  const picked = new Set(selectedTypeIds.value)
+  if (picked.has(typeId)) {
+    picked.delete(typeId)
+  } else {
+    picked.add(typeId)
+  }
+  selectedTypeIds.value = typeFilterOptions.value
+    .filter((o) => picked.has(o.value))
+    .map((o) => o.value)
+}
+
+/** 清除全部类型筛选 */
+function clearTypeFilter() {
+  selectedTypeIds.value = []
+}
+
+/** 搜索关键词（去空格、忽略大小写） */
+const keyword = computed(() => searchKeyword.value.trim().toLowerCase())
+
+/** 是否处于筛选状态（类型多选或关键词搜索） */
+const hasExtraFilter = computed(() => selectedTypeIds.value.length > 0 || !!keyword.value)
 
 function myNameCandidates() {
   const auth = getAuth()
@@ -104,10 +193,23 @@ function didJoin(m: MeetingItem) {
 }
 
 const filteredMeetings = computed(() => {
-  const list = sortedMeetings.value
-  if (filter.value === 'ongoing') return list.filter((m) => m.tab === 'ongoing')
-  if (filter.value === 'host') return list.filter((m) => m.isHost)
-  if (filter.value === 'joined') return list.filter((m) => didJoin(m))
+  let list = sortedMeetings.value
+  if (filter.value === 'ongoing') {
+    list = list.filter((m) => m.tab === 'ongoing')
+  } else if (filter.value === 'host') {
+    list = list.filter((m) => m.isHost)
+  } else if (filter.value === 'joined') {
+    list = list.filter((m) => didJoin(m))
+  }
+  // 类型多选（含「未分类」）；未选择时不筛选
+  if (selectedTypeIds.value.length) {
+    const picked = new Set(selectedTypeIds.value)
+    list = list.filter((m) => picked.has(m.typeId ?? NO_TYPE_ID))
+  }
+  // 按会议名称模糊搜索
+  if (keyword.value) {
+    list = list.filter((m) => (m.title || '').toLowerCase().includes(keyword.value))
+  }
   return list
 })
 
@@ -125,6 +227,8 @@ const listTitle = computed(() => {
 })
 
 const emptyDescription = computed(() => {
+  if (keyword.value) return `没有名称包含「${searchKeyword.value.trim()}」的会议`
+  if (selectedTypeIds.value.length) return '没有符合所选类型的会议'
   switch (filter.value) {
     case 'ongoing':
       return '当前没有进行中的会议'
@@ -161,6 +265,34 @@ async function refresh() {
   } finally {
     loading.value = false
   }
+}
+
+/** 加载管理端维护的会议类型；失败不阻塞列表，仅降级为无类型筛选 */
+async function loadMeetingTypes() {
+  try {
+    const data = await listMeetingTypes()
+    meetingTypes.value = data.list ?? []
+    // 类型被删除后清理已选项，避免出现「已选但筛不出」的僵状态
+    if (selectedTypeIds.value.length) {
+      const valid = new Set<number>([NO_TYPE_ID, ...meetingTypes.value.map((t) => t.id)])
+      selectedTypeIds.value = selectedTypeIds.value.filter((id) => valid.has(id))
+    }
+  } catch {
+    meetingTypes.value = []
+  }
+}
+
+function openSearch() {
+  searchOpen.value = true
+  void nextTick(() => {
+    searchInputRef.value?.focus?.()
+  })
+}
+
+/** 关闭搜索框并清空关键词，恢复完整列表 */
+function closeSearch() {
+  searchOpen.value = false
+  searchKeyword.value = ''
 }
 
 async function ensureMe() {
@@ -379,14 +511,14 @@ function canEnter(m: MeetingItem) {
   return !dayjs(m.startAt).subtract(5, 'minute').isAfter(dayjs())
 }
 
-/** 主持人：已可进入（含提前 5 分钟）即可结束，不必等状态变成「进行中」 */
+/** 主持人：仅「进行中」的会议可结束 */
 function canEnd(m: MeetingItem) {
-  return m.isHost && !isEnded(m) && canEnter(m)
+  return m.isHost && isOngoing(m)
 }
 
-/** 主持人：仅未开始（未到可进窗口）的预定会议可删；已结束只能在管理端删 */
+/** 主持人：仅「预定」的会议可删除（取消并入删除）；已结束的会议不可在会议端删 */
 function canDelete(m: MeetingItem) {
-  return m.isHost && !isEnded(m) && !canEnter(m)
+  return m.isHost && !isOngoing(m) && !isEnded(m)
 }
 
 async function enterMeeting(m: MeetingItem) {
@@ -416,6 +548,8 @@ async function enterMeeting(m: MeetingItem) {
       shareCode: m.shareCode,
       recordEnabled: !!data.recordEnabled,
       recordingActive: !!data.recordingActive,
+      startAt: data.startAt || m.startAt,
+      actualStartAt: data.actualStartAt || m.actualStartAt,
     })
     await router.push({ name: 'room', params: { room: data.room } })
   } catch (err) {
@@ -476,6 +610,7 @@ function openEdit(m: MeetingItem) {
   editForm.title = m.title
   editForm.startAt = m.startAt ? dayjs(m.startAt) : undefined
   editForm.endAt = m.endAt ? dayjs(m.endAt) : undefined
+  editForm.typeId = m.typeId && m.typeId > 0 ? m.typeId : undefined
   editOpen.value = true
 }
 
@@ -497,6 +632,10 @@ async function onEdit() {
     message.warning('结束时间必须晚于开始时间')
     return Promise.reject()
   }
+  if (editForm.startAt.isBefore(dayjs())) {
+    message.warning('开始时间不能早于当前时间')
+    return Promise.reject()
+  }
   renaming.value = true
   try {
     await updateMeeting({
@@ -504,6 +643,7 @@ async function onEdit() {
       title,
       startAt: editForm.startAt.format('YYYY-MM-DD HH:mm:ss'),
       endAt: editForm.endAt.format('YYYY-MM-DD HH:mm:ss'),
+      typeId: editForm.typeId ?? NO_TYPE_ID,
     })
     message.success('会议已更新')
     editOpen.value = false
@@ -529,6 +669,10 @@ async function onCreate() {
     message.warning('结束时间必须晚于开始时间')
     return
   }
+  if (createForm.startAt.isBefore(dayjs())) {
+    message.warning('开始时间不能早于当前时间')
+    return
+  }
   creating.value = true
   try {
     await createMeeting({
@@ -537,20 +681,51 @@ async function onCreate() {
       startAt: createForm.startAt.format('YYYY-MM-DD HH:mm:ss'),
       endAt: createForm.endAt.format('YYYY-MM-DD HH:mm:ss'),
       recordEnabled: !!createForm.recordEnabled,
+      typeId: createForm.typeId ?? NO_TYPE_ID,
     })
     message.success('会议室已创建')
     createOpen.value = false
-    createForm.title = ''
-    createForm.recordEnabled = false
-    const now = dayjs()
-    createForm.startAt = now.add(5, 'minute')
-    createForm.endAt = now.add(1, 'hour')
+    resetCreateForm()
     await refresh()
   } catch (err) {
     message.error(err instanceof ApiError ? err.message : '创建失败')
   } finally {
     creating.value = false
   }
+}
+
+// 生成 [start, end) 的整数数组
+function range(start: number, end: number): number[] {
+  return Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i)
+}
+
+// 新建会议：开始日期选「今天」时，禁用当前时刻之前的时间（日期维度的禁用由 disabled-date 处理）
+function disabledCreateStartTime(current: Dayjs | null) {
+  const now = dayjs()
+  if (!current || !current.isSame(now, 'day')) {
+    return {}
+  }
+  const disabledHours = () => range(0, now.hour())
+  const disabledMinutes = (hour: number) => (hour === now.hour() ? range(0, now.minute()) : [])
+  const disabledSeconds = () => range(0, now.second())
+  return { disabledHours, disabledMinutes, disabledSeconds }
+}
+
+function resetCreateForm() {
+  createForm.title = ''
+  createForm.recordEnabled = false
+  createForm.typeId = undefined
+  const now = dayjs()
+  // 默认从现在起 5 分钟开始、整 1 小时结束：
+  // - startAt 取整到分钟，避免因带秒数导致“到点却不开始/开始时间晚于表单显示时间”
+  // - endAt 由 startAt 推导，保证默认时长固定为 1 小时而不是 55 分钟
+  createForm.startAt = now.add(5, 'minute').startOf('minute')
+  createForm.endAt = createForm.startAt.add(1, 'hour')
+}
+
+function openCreate() {
+  resetCreateForm()
+  createOpen.value = true
 }
 
 async function onLogout() {
@@ -603,7 +778,11 @@ function formatInviteTime(m: MeetingItem) {
   const end = m.endAt ? dayjs(m.endAt) : null
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
   const date = `${formatCnDate(start)} 周${weekdays[start.day()]}`
-  const range = end ? `${start.format('HH:mm')} – ${end.format('HH:mm')}` : start.format('HH:mm')
+  const range = end
+    ? end.isSame(start, 'day')
+      ? `${start.format('HH:mm')} – ${end.format('HH:mm')}`
+      : `${start.format('HH:mm')} – ${formatCnDate(end)} ${end.format('HH:mm')}`
+    : start.format('HH:mm')
   const duration = end ? formatDurationMinutes(end.diff(start, 'minute')) : ''
   return { date, range, duration }
 }
@@ -631,23 +810,21 @@ function statusLabel(m: MeetingItem) {
 
 function progressInfo(m: MeetingItem) {
   if (!m.startAt || !m.endAt) return null
-  const start = dayjs(m.startAt)
+  const start = m.actualStartAt ? dayjs(m.actualStartAt) : dayjs(m.startAt)
   const end = dayjs(m.endAt)
   const now = dayjs()
   const total = Math.max(end.diff(start, 'minute'), 1)
   const elapsed = Math.min(Math.max(now.diff(start, 'minute'), 0), total)
-  const remain = Math.max(end.diff(now, 'minute'), 0)
   const percent = Math.min(100, Math.round((elapsed / total) * 100))
-  return { elapsed, remain, percent }
+  return { elapsed, percent }
 }
 
 onMounted(() => {
   unsubAuth = subscribeAuth(syncUser)
   void ensureMe()
+  void loadMeetingTypes()
   void refresh()
-  const now = dayjs()
-  createForm.startAt = now.add(5, 'minute')
-  createForm.endAt = now.add(1, 'hour')
+  resetCreateForm()
 })
 
 onUnmounted(() => {
@@ -683,11 +860,41 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="nav-right">
+          <div v-if="searchOpen" class="search-box">
+            <Input
+              ref="searchInputRef"
+              v-model:value="searchKeyword"
+              class="search-input"
+              placeholder="搜索会议名称"
+              allow-clear
+            >
+              <template #prefix><SearchOutlined class="search-prefix" /></template>
+            </Input>
+            <Button
+              type="text"
+              class="icon-btn"
+              title="关闭搜索"
+              aria-label="关闭搜索"
+              @click="closeSearch"
+            >
+              <template #icon><CloseOutlined /></template>
+            </Button>
+          </div>
+          <Button
+            v-else
+            type="text"
+            class="icon-btn"
+            title="搜索会议"
+            aria-label="搜索会议"
+            @click="openSearch"
+          >
+            <template #icon><SearchOutlined /></template>
+          </Button>
           <ThemeToggle />
           <Button type="text" class="icon-btn" :loading="loading" @click="refresh">
             <template #icon><ReloadOutlined /></template>
           </Button>
-          <Button type="primary" class="btn-primary" @click="createOpen = true">
+          <Button type="primary" class="btn-primary" @click="openCreate">
             <template #icon><PlusOutlined /></template>
             新建会议室
           </Button>
@@ -736,6 +943,87 @@ onUnmounted(() => {
           <div class="list-title">
             <h2>{{ listTitle }}</h2>
             <span class="badge">{{ filteredMeetings.length }}</span>
+            <!-- 折叠按钮：点击展开会议类型多选面板（选项来自管理端「会议类型」） -->
+            <Dropdown
+              v-if="typeFilterOptions.length > 1"
+              v-model:open="typeFilterOpen"
+              trigger="click"
+              placement="bottomLeft"
+              overlay-class-name="type-panel-dropdown"
+            >
+              <button
+                type="button"
+                class="type-filter-btn"
+                :class="{ active: selectedTypeIds.length > 0, open: typeFilterOpen }"
+                :title="
+                  selectedTypeIds.length
+                    ? `已筛选 ${selectedTypeIds.length} 个会议类型`
+                    : '按会议类型筛选'
+                "
+                aria-label="按会议类型筛选"
+              >
+                <svg
+                  class="type-filter-caret"
+                  viewBox="0 0 16 16"
+                  width="13"
+                  height="13"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M4 6.5 8 10.5 12 6.5" />
+                </svg>
+                <span v-if="selectedTypeIds.length" class="type-filter-dot" aria-hidden="true" />
+              </button>
+              <template #overlay>
+                <div class="type-panel">
+                  <div class="type-panel-head">
+                    <span class="type-panel-title">会议类型</span>
+                    <button
+                      v-if="selectedTypeIds.length"
+                      type="button"
+                      class="type-panel-clear"
+                      @click="clearTypeFilter"
+                    >
+                      清除
+                    </button>
+                  </div>
+                  <div class="type-panel-list">
+                    <button
+                      v-for="opt in typeFilterOptions"
+                      :key="opt.value"
+                      type="button"
+                      class="type-panel-item"
+                      :class="[typeClass(opt.value), { checked: selectedTypeIds.includes(opt.value) }]"
+                      @click="toggleTypeFilter(opt.value)"
+                    >
+                      <span class="type-panel-check">
+                        <CheckOutlined v-if="selectedTypeIds.includes(opt.value)" />
+                      </span>
+                      <i class="type-dot" aria-hidden="true" />
+                      <span class="type-panel-label">{{ opt.label }}</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </Dropdown>
+            <span
+              v-for="t in visibleTypeTags"
+              :key="t.value"
+              class="type-tag"
+              :class="typeClass(t.value)"
+              :title="t.label"
+            >
+              <i class="type-dot" aria-hidden="true" />
+              <span class="type-tag-label">{{ t.label }}</span>
+              <CloseOutlined class="type-tag-close" @click="toggleTypeFilter(t.value)" />
+            </span>
+            <span v-if="hiddenTypeTagCount > 0" class="type-tag type-tag-more">
+              +{{ hiddenTypeTagCount }}
+            </span>
           </div>
           <div class="filters" role="tablist">
             <button
@@ -776,10 +1064,10 @@ onUnmounted(() => {
         <div v-if="!loading && !filteredMeetings.length" class="empty-wrap">
           <Empty :description="emptyDescription">
             <Button
-              v-if="filter === 'all'"
+              v-if="filter === 'all' && !hasExtraFilter"
               type="primary"
               class="btn-primary"
-              @click="createOpen = true"
+              @click="openCreate"
             >
               <template #icon><PlusOutlined /></template>
               新建会议室
@@ -815,6 +1103,10 @@ onUnmounted(() => {
                   {{ statusLabel(m) }}
                 </span>
                 <span v-if="m.isHost" class="pill pill-host">我主持</span>
+                <span v-if="m.typeName" class="pill pill-type" :class="typeClass(m.typeId)">
+                  <i class="type-dot" aria-hidden="true" />
+                  {{ m.typeName }}
+                </span>
               </div>
 
               <div class="card-meta">
@@ -830,7 +1122,7 @@ onUnmounted(() => {
                       <span class="schedule-range">{{ sch.range }}</span>
                     </span>
                   </span>
-                  <span v-if="sch.duration" class="meta-item">
+                  <span v-if="sch.duration && !isOngoing(m)" class="meta-item">
                     <span class="meta-label">会议时长</span>
                     <span class="tabular">{{ sch.duration }}</span>
                   </span>
@@ -866,12 +1158,12 @@ onUnmounted(() => {
                   />
                 </div>
                 <div class="progress-text tabular">
-                  已进行 {{ progressInfo(m)!.elapsed }} 分钟 · 剩余 {{ progressInfo(m)!.remain }} 分钟
+                  已进行 {{ progressInfo(m)!.elapsed }} 分钟
                 </div>
               </div>
             </div>
 
-            <div class="card-actions">
+            <div v-if="!isEnded(m)" class="card-actions">
               <Button
                 v-if="canEnter(m)"
                 type="primary"
@@ -880,16 +1172,8 @@ onUnmounted(() => {
               >
                 进入
               </Button>
-              <Button
-                v-else-if="isEnded(m)"
-                type="primary"
-                class="btn-primary"
-                @click="openDetail(m)"
-              >
-                详情
-              </Button>
               <Button v-else class="btn-disabled" disabled>未到时间</Button>
-              <Button v-if="!isEnded(m)" class="btn-invite" @click="openInvite(m)">
+              <Button class="btn-invite" @click="openInvite(m)">
                 <template #icon><UserAddOutlined /></template>
                 邀请
               </Button>
@@ -920,6 +1204,7 @@ onUnmounted(() => {
       ok-text="创建"
       cancel-text="取消"
       destroy-on-close
+      :afterClose="resetCreateForm"
       @ok="onCreate"
     >
       <Form layout="vertical" class="create-form">
@@ -929,6 +1214,15 @@ onUnmounted(() => {
         <Form.Item label="主持人">
           <Input :value="userLabel" disabled />
         </Form.Item>
+        <Form.Item label="会议类型">
+          <Select
+            v-model:value="createForm.typeId"
+            :options="typeFormOptions"
+            :disabled="!typeFormOptions.length"
+            :placeholder="typeFormOptions.length ? '非必选，不选择则不计类型' : '暂无会议类型'"
+            allow-clear
+          />
+        </Form.Item>
         <Form.Item label="开始时间" required>
           <DatePicker
             v-model:value="createForm.startAt"
@@ -936,6 +1230,8 @@ onUnmounted(() => {
             format="YYYY-MM-DD HH:mm"
             placeholder="选择开始时间"
             style="width: 100%"
+            :disabled-date="(d) => d.isBefore(dayjs().startOf('day'))"
+            :disabled-time="disabledCreateStartTime"
           />
         </Form.Item>
         <Form.Item label="结束时间" required>
@@ -951,14 +1247,14 @@ onUnmounted(() => {
         <Form.Item label="开启录制">
           <div class="record-switch-row">
             <Switch v-model:checked="createForm.recordEnabled" />
-            <span class="record-switch-hint">默认关闭；开启后主持人进房自动开始，会中仍可多次启停</span>
+            <span class="record-switch-hint">默认关闭；开启后第一位参会者进房自动开始，会中仍可多次启停</span>
           </div>
         </Form.Item>
         <div class="time-hint">
           <InfoCircleOutlined class="time-hint-icon" />
           <ul class="time-hint-list">
             <li>可提前 5 分钟进入；时间仅作说明，可超期进行</li>
-            <li>结束后主持人可点「结束」，或约 2 小时后自动结束</li>
+            <li>预定结束后主持人可点「结束」；到点无人则自动结束，有人则继续计时</li>
             <li>结束时会自动同步实际结束时间</li>
           </ul>
         </div>
@@ -983,6 +1279,15 @@ onUnmounted(() => {
             allow-clear
           />
         </Form.Item>
+        <Form.Item label="会议类型">
+          <Select
+            v-model:value="editForm.typeId"
+            :options="typeFormOptions"
+            :disabled="!typeFormOptions.length"
+            :placeholder="typeFormOptions.length ? '非必选，清空则不计类型' : '暂无会议类型'"
+            allow-clear
+          />
+        </Form.Item>
         <Form.Item label="开始时间" required>
           <DatePicker
             v-model:value="editForm.startAt"
@@ -990,6 +1295,7 @@ onUnmounted(() => {
             format="YYYY-MM-DD HH:mm"
             placeholder="选择开始时间"
             style="width: 100%"
+            :disabled-date="(d) => d.isBefore(dayjs().startOf('day'))"
           />
         </Form.Item>
         <Form.Item label="结束时间" required>
@@ -1006,7 +1312,7 @@ onUnmounted(() => {
           <InfoCircleOutlined class="time-hint-icon" />
           <ul class="time-hint-list">
             <li>可提前 5 分钟进入；时间仅作说明，可超期进行</li>
-            <li>结束后主持人可点「结束」，或约 2 小时后自动结束</li>
+            <li>预定结束后主持人可点「结束」；到点无人则自动结束，有人则继续计时</li>
             <li>结束时会自动同步实际结束时间</li>
           </ul>
         </div>
@@ -1392,6 +1698,28 @@ html[data-theme='dark'] .btn-danger:hover {
   cursor: not-allowed !important;
 }
 
+/* 顶栏搜索：图标态与输入框态 */
+.search-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-input {
+  width: 200px;
+  border-radius: 10px !important;
+}
+
+.search-input .search-prefix {
+  color: var(--ink-35);
+}
+
+@media (max-width: 640px) {
+  .search-input {
+    width: 148px;
+  }
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1472,11 +1800,17 @@ html[data-theme='dark'] .btn-danger:hover {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  min-width: 0;
 }
 .list-title h2 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
+}
+.list-title .badge {
+  flex-shrink: 0;
 }
 .badge {
   min-width: 22px;
@@ -1494,6 +1828,386 @@ html[data-theme='dark'] .btn-danger:hover {
 html[data-theme='dark'] .badge {
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* ========== 会议类型配色（类型ID 取模，标签/下拉项/列表标签一致） ========== */
+.type-none {
+  --type-fg: #475569;
+  --type-bg: rgba(100, 116, 139, 0.12);
+  --type-bd: rgba(100, 116, 139, 0.26);
+}
+.type-c0 {
+  /* 靛蓝 */
+  --type-fg: #4f46e5;
+  --type-bg: rgba(99, 102, 241, 0.12);
+  --type-bd: rgba(99, 102, 241, 0.28);
+}
+.type-c1 {
+  /* 琥珀 */
+  --type-fg: #b45309;
+  --type-bg: rgba(245, 158, 11, 0.15);
+  --type-bd: rgba(245, 158, 11, 0.32);
+}
+.type-c2 {
+  /* 翠绿 */
+  --type-fg: #047857;
+  --type-bg: rgba(16, 185, 129, 0.13);
+  --type-bd: rgba(16, 185, 129, 0.3);
+}
+.type-c3 {
+  /* 紫罗兰 */
+  --type-fg: #7c3aed;
+  --type-bg: rgba(139, 92, 246, 0.12);
+  --type-bd: rgba(139, 92, 246, 0.28);
+}
+.type-c4 {
+  /* 蓝 */
+  --type-fg: #1d4ed8;
+  --type-bg: rgba(59, 130, 246, 0.12);
+  --type-bd: rgba(59, 130, 246, 0.28);
+}
+.type-c5 {
+  /* 玫红 */
+  --type-fg: #be123c;
+  --type-bg: rgba(244, 63, 94, 0.11);
+  --type-bd: rgba(244, 63, 94, 0.28);
+}
+.type-c6 {
+  /* 青绿 */
+  --type-fg: #0f766e;
+  --type-bg: rgba(13, 148, 136, 0.13);
+  --type-bd: rgba(13, 148, 136, 0.3);
+}
+.type-c7 {
+  /* 橙 */
+  --type-fg: #c2410c;
+  --type-bg: rgba(249, 115, 22, 0.13);
+  --type-bd: rgba(249, 115, 22, 0.3);
+}
+.type-c8 {
+  /* 品红 */
+  --type-fg: #a21caf;
+  --type-bg: rgba(217, 70, 239, 0.11);
+  --type-bd: rgba(217, 70, 239, 0.28);
+}
+.type-c9 {
+  /* 天青 */
+  --type-fg: #0e7490;
+  --type-bg: rgba(6, 182, 212, 0.12);
+  --type-bd: rgba(6, 182, 212, 0.3);
+}
+
+html[data-theme='dark'] .type-none {
+  --type-fg: #cbd5e1;
+  --type-bg: rgba(148, 163, 184, 0.2);
+  --type-bd: rgba(148, 163, 184, 0.36);
+}
+html[data-theme='dark'] .type-c0 {
+  --type-fg: #a5b4fc;
+  --type-bg: rgba(99, 102, 241, 0.24);
+  --type-bd: rgba(129, 140, 248, 0.4);
+}
+html[data-theme='dark'] .type-c1 {
+  --type-fg: #fcd34d;
+  --type-bg: rgba(245, 158, 11, 0.22);
+  --type-bd: rgba(252, 211, 77, 0.4);
+}
+html[data-theme='dark'] .type-c2 {
+  --type-fg: #6ee7b7;
+  --type-bg: rgba(16, 185, 129, 0.22);
+  --type-bd: rgba(52, 211, 153, 0.4);
+}
+html[data-theme='dark'] .type-c3 {
+  --type-fg: #c4b5fd;
+  --type-bg: rgba(139, 92, 246, 0.24);
+  --type-bd: rgba(167, 139, 250, 0.42);
+}
+html[data-theme='dark'] .type-c4 {
+  --type-fg: #93c5fd;
+  --type-bg: rgba(59, 130, 246, 0.24);
+  --type-bd: rgba(96, 165, 250, 0.42);
+}
+html[data-theme='dark'] .type-c5 {
+  --type-fg: #fda4af;
+  --type-bg: rgba(244, 63, 94, 0.22);
+  --type-bd: rgba(251, 113, 133, 0.4);
+}
+html[data-theme='dark'] .type-c6 {
+  --type-fg: #5eead4;
+  --type-bg: rgba(13, 148, 136, 0.24);
+  --type-bd: rgba(45, 212, 191, 0.4);
+}
+html[data-theme='dark'] .type-c7 {
+  --type-fg: #fdba74;
+  --type-bg: rgba(249, 115, 22, 0.22);
+  --type-bd: rgba(251, 146, 60, 0.4);
+}
+html[data-theme='dark'] .type-c8 {
+  --type-fg: #f0abfc;
+  --type-bg: rgba(217, 70, 239, 0.22);
+  --type-bd: rgba(232, 121, 249, 0.4);
+}
+html[data-theme='dark'] .type-c9 {
+  --type-fg: #67e8f9;
+  --type-bg: rgba(6, 182, 212, 0.22);
+  --type-bd: rgba(34, 211, 238, 0.4);
+}
+
+.type-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--type-fg, currentColor);
+}
+
+/* ========== 会议类型筛选：折叠图标按钮 + 下拉面板 ========== */
+.type-filter-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-35);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+
+.type-filter-btn:hover {
+  color: var(--ink-60);
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.type-filter-btn:focus-visible {
+  outline: none;
+  color: var(--ink-60);
+  background: rgba(15, 23, 42, 0.06);
+  box-shadow: 0 0 0 3px rgba(243, 160, 76, 0.2);
+}
+
+.type-filter-btn.open {
+  color: var(--ink);
+  background: rgba(15, 23, 42, 0.07);
+}
+
+.type-filter-btn.active {
+  color: var(--brand-strong);
+}
+
+.type-filter-btn.active:hover,
+.type-filter-btn.active.open {
+  background: rgba(243, 160, 76, 0.14);
+}
+
+.type-filter-caret {
+  transition: transform 0.2s ease;
+}
+
+.type-filter-btn.open .type-filter-caret {
+  transform: rotate(180deg);
+}
+
+/* 有筛选时右上角一个小圆点提示，不做其它装饰 */
+.type-filter-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 2px var(--card);
+}
+
+html[data-theme='dark'] .type-filter-btn:hover,
+html[data-theme='dark'] .type-filter-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .type-filter-btn.open {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme='dark'] .type-filter-btn.active {
+  color: #fcd34d;
+}
+
+html[data-theme='dark'] .type-filter-dot {
+  box-shadow: 0 0 0 2px #111827;
+}
+
+
+/* 已选类型标签 */
+.type-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 7px 0 8px;
+  border: 1px solid var(--type-bd);
+  border-radius: 999px;
+  background: var(--type-bg);
+  color: var(--type-fg);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.type-tag-label {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.type-tag-close {
+  font-size: 9px;
+  opacity: 0.65;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.type-tag-close:hover {
+  opacity: 1;
+}
+
+.type-tag-more {
+  padding: 0 9px;
+  border-color: var(--line);
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--ink-60);
+}
+html[data-theme='dark'] .type-tag-more {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 下拉面板（挂到 body，需自带主题变量） */
+.type-panel {
+  --panel-bg: #ffffff;
+  --panel-line: rgba(15, 23, 42, 0.08);
+  --panel-ink: rgba(15, 23, 42, 0.92);
+  --panel-ink-60: rgba(15, 23, 42, 0.6);
+  --panel-hover: rgba(15, 23, 42, 0.05);
+
+  min-width: 208px;
+  max-width: 280px;
+  padding: 6px;
+  border: 1px solid var(--panel-line);
+  border-radius: 12px;
+  background: var(--panel-bg);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+}
+
+html[data-theme='dark'] .type-panel {
+  --panel-bg: #111827;
+  --panel-line: rgba(148, 163, 184, 0.18);
+  --panel-ink: rgba(248, 250, 252, 0.94);
+  --panel-ink-60: rgba(226, 232, 240, 0.68);
+  --panel-hover: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.type-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px 9px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--panel-line);
+}
+
+.type-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--panel-ink-60);
+}
+
+.type-panel-clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand-strong, #e8892a);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.type-panel-clear:hover {
+  text-decoration: underline;
+}
+
+.type-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.type-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--panel-ink);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.type-panel-item:hover {
+  background: var(--panel-hover);
+}
+
+.type-panel-item.checked {
+  background: var(--type-bg);
+  color: var(--type-fg);
+  font-weight: 600;
+}
+
+.type-panel-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--panel-line);
+  border-radius: 5px;
+  color: var(--type-fg);
+  font-size: 9px;
+  background: transparent;
+}
+
+.type-panel-item.checked .type-panel-check {
+  border-color: var(--type-bd);
+  background: var(--type-bg);
+}
+
+.type-panel-item .type-dot {
+  width: 7px;
+  height: 7px;
+}
+
+.type-panel-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
 
 .filters {
   display: inline-flex;
@@ -1660,6 +2374,22 @@ html[data-theme='dark'] .pill-host {
   color: #fcd34d;
   background: rgba(245, 158, 11, 0.22);
 }
+/* 列表卡片上的类型标签：颜色与筛选标签一致 */
+.pill-type {
+  gap: 5px;
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--type-bd);
+  color: var(--type-fg);
+  background: var(--type-bg);
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pill-type .type-dot {
+  width: 5px;
+  height: 5px;
+}
 
 .card-meta {
   display: flex;
@@ -1698,7 +2428,7 @@ html[data-theme='dark'] .pill-host {
 }
 
 .recording-link {
-  color: var(--brand-strong);
+  color: var(--brand-strong, #e8892a);
   cursor: pointer;
   background: none;
   border: none;
@@ -1712,7 +2442,7 @@ html[data-theme='dark'] .pill-host {
 }
 
 .recording-status {
-  color: var(--ink-35);
+  color: var(--vc-muted);
 }
 
 .play-video {
@@ -1738,13 +2468,13 @@ html[data-theme='dark'] .pill-host {
 .detail-play-error {
   margin: 0;
   font-size: 12px;
-  color: var(--danger);
+  color: var(--vc-danger, #ef4444);
 }
 
 .detail-play-hint {
   margin: 0;
   font-size: 13px;
-  color: var(--ink-35);
+  color: var(--vc-muted);
 }
 
 .detail-segs {
@@ -1756,7 +2486,7 @@ html[data-theme='dark'] .pill-host {
 .detail-segs-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--vc-ink);
 }
 
 .detail-seg {
@@ -1766,8 +2496,8 @@ html[data-theme='dark'] .pill-host {
   gap: 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--card) 88%, transparent);
+  border: 1px solid var(--vc-line);
+  background: color-mix(in srgb, var(--vc-panel-solid) 88%, transparent);
 }
 
 .detail-seg.active {
@@ -1786,12 +2516,12 @@ html[data-theme='dark'] .pill-host {
 .detail-seg-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--vc-ink);
 }
 
 .detail-seg-meta {
   font-size: 12px;
-  color: var(--ink-35);
+  color: var(--vc-muted);
 }
 
 .detail-seg-actions {
@@ -1967,13 +2697,13 @@ html[data-theme='dark'] .time-hint {
 }
 
 .invite-label {
-  color: rgba(15, 23, 42, 0.4);
+  color: var(--vc-muted);
   font-size: 13px;
   line-height: 1.5;
 }
 
 .invite-value {
-  color: rgba(15, 23, 42, 0.9);
+  color: var(--vc-ink);
   font-size: 14px;
   line-height: 1.5;
   word-break: break-word;
@@ -1987,7 +2717,7 @@ html[data-theme='dark'] .time-hint {
 }
 
 .invite-time-date {
-  color: rgba(15, 23, 42, 0.9);
+  color: var(--vc-ink);
   font-size: 14px;
   font-weight: 560;
   line-height: 1.45;
@@ -1998,7 +2728,7 @@ html[data-theme='dark'] .time-hint {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
-  color: rgba(15, 23, 42, 0.62);
+  color: var(--vc-muted);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -2009,7 +2739,8 @@ html[data-theme='dark'] .time-hint {
 }
 
 .invite-time-dur {
-  color: rgba(15, 23, 42, 0.45);
+  color: var(--vc-muted);
+  opacity: 0.85;
 }
 
 .invite-time-dur::before {
@@ -2019,7 +2750,7 @@ html[data-theme='dark'] .time-hint {
   height: 11px;
   margin-right: 10px;
   vertical-align: -1px;
-  background: rgba(15, 23, 42, 0.12);
+  background: var(--vc-line);
 }
 
 .invite-actions {
@@ -2028,7 +2759,7 @@ html[data-theme='dark'] .time-hint {
   align-items: stretch;
   gap: 12px;
   padding-top: 4px;
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  border-top: 1px solid var(--vc-line);
 }
 
 .invite-action {
@@ -2076,7 +2807,7 @@ html[data-theme='dark'] .time-hint {
 .invite-hint {
   margin: 0;
   padding: 0 2px;
-  color: rgba(15, 23, 42, 0.35);
+  color: var(--vc-muted);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -2122,6 +2853,13 @@ html[data-theme='dark'] .time-hint {
 </style>
 
 <style>
+/* 会议类型筛选面板：去掉 ant Dropdown 默认外观，交给 .type-panel 自己画 */
+.type-panel-dropdown {
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .invite-modal .ant-modal-content,
 .detail-modal .ant-modal-content {
   overflow: hidden;
@@ -2137,7 +2875,7 @@ html[data-theme='dark'] .time-hint {
 
 .invite-modal .ant-modal-title,
 .detail-modal .ant-modal-title {
-  color: rgba(15, 23, 42, 0.92);
+  color: var(--vc-ink);
   font-size: 17px;
   font-weight: 650;
   line-height: 1.35;

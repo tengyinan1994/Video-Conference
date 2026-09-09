@@ -34,6 +34,7 @@ func Api(ctx context.Context, group *ghttp.RouterGroup) {
 			group.Bind(
 				api.Auth,
 				api.Meeting,
+				api.MeetingTypeOptions,
 				api.Recording,
 			)
 		})

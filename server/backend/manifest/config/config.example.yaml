@@ -331,4 +331,7 @@ recording:
   # height: 1440
   # framerate: 60
   # videoBitrate: 12000
+  # Egress 自定义布局页面（客户端 /egress 路由）。空则用内置 speaker 布局。egress 在 Docker 内时用 host.docker.internal。
+  # 网页开发 Vite 走 basicSsl 是 https，这里保持一致。
+  # customBaseUrl: "https://host.docker.internal:5173/egress"
   publicEndpoint: ""  # 管理后台回放直链：填浏览器可达的 RustFS 地址（如 http://公网IP:17886）；不可用容器名 rustfs
