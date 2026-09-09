@@ -11,7 +11,13 @@
     >
       <n-scrollbar style="max-height: 82vh" class="pr-5">
         <n-spin :show="loading" description="请稍候...">
-          <n-descriptions bordered :column="2" size="small" label-placement="left">
+          <n-descriptions
+            bordered
+            :column="2"
+            size="small"
+            label-placement="left"
+            :label-style="{ width: '88px' }"
+          >
             <n-descriptions-item label="会议名称" :span="2">
               {{ formValue.title }}
             </n-descriptions-item>
@@ -21,14 +27,14 @@
               </n-tag>
             </n-descriptions-item>
             <n-descriptions-item label="主持人">{{ formValue.hostName }}</n-descriptions-item>
-            <n-descriptions-item label="会议类型">{{
+            <n-descriptions-item label="会议类型" :span="2">{{
               formValue.typeName || '未分类'
             }}</n-descriptions-item>
             <n-descriptions-item label="会议时间" :span="2">{{ timeText }}</n-descriptions-item>
-            <n-descriptions-item label="创建时间">{{
+            <n-descriptions-item label="创建时间" :span="2">{{
               fmtTime(formValue.createdAt)
             }}</n-descriptions-item>
-            <n-descriptions-item label="录制开关">
+            <n-descriptions-item label="录制开关" :span="2">
               {{ formValue.recordEnabled ? '已开启' : '未开启' }}
             </n-descriptions-item>
           </n-descriptions>
