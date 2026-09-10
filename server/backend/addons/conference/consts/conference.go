@@ -39,12 +39,27 @@ const (
 	MeetingTypeTable = "hg_addon_conference_meeting_type"
 	// RecordingTable 录制分段表
 	RecordingTable = "hg_addon_conference_recording"
+	// MinutesTable 会后 AI 纪要表
+	MinutesTable = "hg_addon_conference_minutes"
 
 	RecordingStatusStarting = "starting"
 	RecordingStatusActive   = "active"
 	RecordingStatusStopping = "stopping"
 	RecordingStatusComplete = "complete"
 	RecordingStatusFailed   = "failed"
+
+	// RecordingPurposePlayback 给人回放的录制
+	RecordingPurposePlayback = "playback"
+	// RecordingPurposeAI 仅给纪要用的音频采集（不进回放列表）
+	RecordingPurposeAI = "ai"
+
+	MinutesStatusPending       = "pending"
+	MinutesStatusTranscribing  = "transcribing"
+	MinutesStatusSummarizing   = "summarizing"
+	MinutesStatusReady         = "ready"
+	MinutesStatusFailed        = "failed"
+	MinutesStatusSkippedEmpty  = "skipped_empty"
+	MinutesStatusUnavailable   = "unavailable"
 
 	// MeetingStatusScheduled 预定
 	MeetingStatusScheduled = "scheduled"

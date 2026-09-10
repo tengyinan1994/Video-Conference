@@ -43,8 +43,11 @@ import {
   downloadRecordingFile,
   recordingPlaySrc,
   recordingStatus,
+  viewMinutes,
+  regenerateMinutes,
   type MeetingItem,
   type MeetingTypeOption,
+  type MinutesInfo,
   type RecordingSegment,
 } from '@/api/conference'
 import { clearAuth, displayName, getAuth, setAuth, subscribeAuth } from '@/stores/auth'
@@ -66,6 +69,13 @@ const inviteOpen = ref(false)
 const inviteTarget = ref<MeetingItem | null>(null)
 const detailOpen = ref(false)
 const detailMeeting = ref<MeetingItem | null>(null)
+const detailMinutes = ref<MinutesInfo | null>(null)
+const minutesLoading = ref(false)
+const minutesRegenning = ref(false)
+const minutesWatchId = ref<number | null>(null)
+const minutesHintLoading = ref(false)
+const minutesHintText = ref('正在整理会议纪要…')
+let minutesSettleToken = 0
 const playSeg = ref<RecordingSegment | null>(null)
 const playError = ref('')
 const meetings = ref<MeetingItem[]>([])
@@ -255,15 +265,21 @@ function syncUser() {
   userLabel.value = displayName()
 }
 
-async function refresh() {
-  loading.value = true
+async function refresh(opts?: { silent?: boolean }) {
+  if (!opts?.silent) loading.value = true
   try {
     const data = await listMeetings('all')
     meetings.value = data.list ?? []
+    syncDetailMinutesFromList()
+    notifyWatchedMinutesIfSettled()
+    if (anyMinutesBusy() || minutesWatchId.value != null) startMinutesListPoll()
+    else stopMinutesListPoll()
   } catch (err) {
-    message.error(err instanceof ApiError ? err.message : '加载会议列表失败')
+    if (!opts?.silent) {
+      message.error(err instanceof ApiError ? err.message : '加载会议列表失败')
+    }
   } finally {
-    loading.value = false
+    if (!opts?.silent) loading.value = false
   }
 }
 
@@ -336,7 +352,184 @@ function attendeesPreview(m: MeetingItem) {
 }
 
 function recordingsOf(m: MeetingItem) {
-  return m.recordings ?? []
+  return (m.recordings ?? []).filter((seg) => !seg.purpose || seg.purpose === 'playback')
+}
+
+function minutesStatusText(status?: string) {
+  switch (status) {
+    case 'pending':
+    case 'transcribing':
+    case 'summarizing':
+    case undefined:
+    case '':
+      return '编写中'
+    case 'ready':
+      return '已生成'
+    case 'failed':
+      return '生成失败'
+    case 'skipped_empty':
+    case 'unavailable':
+      return '无法生成'
+    default:
+      // 会议刚结束、纪要行尚未落库时也视为编写中
+      return status || '编写中'
+  }
+}
+
+function isMinutesBusy(status?: string) {
+  return !status || status === 'pending' || status === 'transcribing' || status === 'summarizing'
+}
+
+function isMinutesNoAudio(status?: string) {
+  return status === 'unavailable' || status === 'skipped_empty'
+}
+
+function minutesOf(m: MeetingItem): MinutesInfo | null {
+  return m.minutes || null
+}
+
+let minutesListPollTimer: ReturnType<typeof setInterval> | null = null
+
+function anyMinutesBusy() {
+  return meetings.value.some((item) => isEnded(item) && isMinutesBusy(minutesOf(item)?.status))
+}
+
+function startMinutesListPoll() {
+  if (minutesListPollTimer) return
+  minutesListPollTimer = setInterval(() => {
+    void refresh({ silent: true })
+  }, 3000)
+}
+
+function stopMinutesListPoll() {
+  if (!minutesListPollTimer) return
+  clearInterval(minutesListPollTimer)
+  minutesListPollTimer = null
+}
+
+function syncDetailMinutesFromList() {
+  const current = detailMeeting.value
+  if (!current) return
+  const fresh = meetings.value.find((item) => item.id === current.id)
+  if (!fresh) return
+  if (fresh.minutes) {
+    detailMinutes.value = fresh.minutes
+    current.minutes = fresh.minutes
+  }
+}
+
+function notifyWatchedMinutesIfSettled() {
+  const id = minutesWatchId.value
+  if (id == null) return
+  const item = meetings.value.find((m) => m.id === id)
+  const st = item?.minutes?.status
+  if (isMinutesBusy(st)) return
+  minutesWatchId.value = null
+  if (st === 'ready') {
+    message.success('会议纪要已生成')
+    return
+  }
+  if (isMinutesNoAudio(st)) {
+    message.warning('该会议没有音频，无法生成会议纪要')
+    return
+  }
+  if (st === 'failed') {
+    message.error('会议纪要生成失败')
+  }
+}
+
+function minutesHintSettled(info?: MinutesInfo | null) {
+  const status = info?.status
+  if (!status) return false
+  if (isMinutesNoAudio(status) || status === 'failed' || status === 'ready') return true
+  if (status === 'transcribing' || status === 'summarizing') return true
+  if (status === 'pending' && (info?.sourceRecordingIds?.length ?? 0) > 0) return true
+  return false
+}
+
+function waitMs(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+async function settleMinutesAfterEnd(meetingId: number, initial?: MinutesInfo) {
+  const token = ++minutesSettleToken
+  minutesHintLoading.value = true
+  minutesHintText.value = '正在整理会议纪要…'
+  let last = initial
+  const deadline = Date.now() + 15000
+  try {
+    if (minutesHintSettled(last)) {
+      if (token !== minutesSettleToken) return
+      minutesHintLoading.value = false
+      showMinutesEndHint(meetingId, last)
+      return
+    }
+    while (Date.now() < deadline) {
+      if (token !== minutesSettleToken) return
+      try {
+        last = await viewMinutes(meetingId)
+      } catch {
+        // 音源收尾期间允许短暂查不到
+      }
+      if (token !== minutesSettleToken) return
+      if (minutesHintSettled(last)) break
+      await waitMs(700)
+    }
+    if (token !== minutesSettleToken) return
+    minutesHintLoading.value = false
+    showMinutesEndHint(
+      meetingId,
+      last?.status ? last : { meetingId, status: 'pending' },
+    )
+    await refresh({ silent: true })
+  } catch {
+    if (token !== minutesSettleToken) return
+    minutesHintLoading.value = false
+    showMinutesEndHint(meetingId, last)
+  }
+}
+
+function showMinutesEndHint(meetingId: number, info?: MinutesInfo) {
+  if (!info) {
+    Modal.info({
+      title: '会议已结束',
+      content: '会议已结束。',
+      okText: '知道了',
+    })
+    return
+  }
+  const status = info.status
+  if (isMinutesNoAudio(status)) {
+    Modal.info({
+      title: '会议已结束',
+      content: '该会议没有音频，无法生成会议纪要。',
+      okText: '知道了',
+    })
+    return
+  }
+  if (isMinutesBusy(status) || !status) {
+    minutesWatchId.value = meetingId
+    Modal.info({
+      title: '会议已结束',
+      content: '会议纪要正在编写，请稍候，结果出来后页面会自动更新。',
+      okText: '知道了',
+    })
+    startMinutesListPoll()
+    return
+  }
+  if (status === 'ready') {
+    Modal.info({
+      title: '会议已结束',
+      content: '会议纪要已生成，可在会议详情中查看。',
+      okText: '知道了',
+    })
+    return
+  }
+  Modal.info({
+    title: '会议已结束',
+    content: status === 'failed' ? '会议纪要生成失败。' : '会议已结束。',
+    okText: '知道了',
+  })
 }
 
 function canPlaySeg(seg: RecordingSegment) {
@@ -369,10 +562,12 @@ const playSrc = computed(() => {
 
 function openDetail(m: MeetingItem, seg?: RecordingSegment) {
   detailMeeting.value = m
+  detailMinutes.value = minutesOf(m)
   playError.value = ''
   playSeg.value = seg && canPlaySeg(seg) ? seg : firstPlayableSeg(m)
   detailOpen.value = true
   void refreshDetailRecordings()
+  void refreshDetailMinutes()
   startDetailPoll()
 }
 
@@ -381,6 +576,7 @@ function closeDetail() {
   if (detailOpen.value) return
   stopDetailPoll()
   detailMeeting.value = null
+  detailMinutes.value = null
   playSeg.value = null
   playError.value = ''
 }
@@ -401,16 +597,57 @@ function onPlayError() {
 
 let detailPollTimer: ReturnType<typeof setInterval> | null = null
 
+async function refreshDetailMinutes() {
+  const m = detailMeeting.value
+  if (!m) return
+  minutesLoading.value = true
+  try {
+    const info = await viewMinutes(m.id)
+    detailMinutes.value = info
+    m.minutes = info
+  } catch (e) {
+    // 列表里可能已有摘要；详情拉取失败不打断回放
+    console.warn('refresh minutes failed', e)
+  } finally {
+    minutesLoading.value = false
+  }
+}
+
+async function onRegenerateMinutes() {
+  const m = detailMeeting.value
+  if (!m || !m.isHost) return
+  minutesRegenning.value = true
+  try {
+    const info = await regenerateMinutes(m.id)
+    detailMinutes.value = info
+    m.minutes = info
+    message.success('已重新提交纪要生成')
+    void refreshDetailMinutes()
+  } catch (e) {
+    const msg = e instanceof ApiError ? e.message : '重新生成失败'
+    message.error(msg)
+  } finally {
+    minutesRegenning.value = false
+  }
+}
+
 function startDetailPoll() {
   stopDetailPoll()
   detailPollTimer = setInterval(() => {
     const m = detailMeeting.value
     if (!m) return
-    if (!recordingsOf(m).some(isProcessingSeg)) {
+    const mins = detailMinutes.value
+    const minutesBusy =
+      mins &&
+      (mins.status === 'pending' ||
+        mins.status === 'transcribing' ||
+        mins.status === 'summarizing')
+    if (!recordingsOf(m).some(isProcessingSeg) && !minutesBusy) {
       stopDetailPoll()
       return
     }
     void refreshDetailRecordings()
+    if (minutesBusy) void refreshDetailMinutes()
   }, 3000)
 }
 
@@ -566,10 +803,13 @@ async function onEnd(m: MeetingItem) {
     okType: 'danger',
     async onOk() {
       try {
-        await endMeeting(m.id)
-        message.success('会议已结束')
-        await refresh()
+        minutesHintLoading.value = true
+        minutesHintText.value = '正在整理会议纪要…'
+        const data = await endMeeting(m.id)
+        await refresh({ silent: true })
+        void settleMinutesAfterEnd(m.id, data?.minutes)
       } catch (err) {
+        minutesHintLoading.value = false
         message.error(err instanceof ApiError ? err.message : '操作失败')
         throw err
       }
@@ -830,6 +1070,9 @@ onMounted(() => {
 onUnmounted(() => {
   unsubAuth?.()
   stopDetailPoll()
+  stopMinutesListPoll()
+  minutesSettleToken += 1
+  minutesHintLoading.value = false
 })
 </script>
 
@@ -891,7 +1134,7 @@ onUnmounted(() => {
             <template #icon><SearchOutlined /></template>
           </Button>
           <ThemeToggle />
-          <Button type="text" class="icon-btn" :loading="loading" @click="refresh">
+          <Button type="text" class="icon-btn" :loading="loading" @click="() => refresh()">
             <template #icon><ReloadOutlined /></template>
           </Button>
           <Button type="primary" class="btn-primary" @click="openCreate">
@@ -1147,6 +1390,14 @@ onUnmounted(() => {
                       <span v-else class="recording-status">{{ recordingStatusText(seg) }}</span>
                     </span>
                   </span>
+                </span>
+              </div>
+              <div v-if="isEnded(m)" class="card-meta card-meta-minutes">
+                <span class="meta-item">
+                  <span class="meta-label">纪要</span>
+                  <button type="button" class="recording-link" @click="openDetail(m)">
+                    {{ minutesStatusText(minutesOf(m)?.status) }}
+                  </button>
                 </span>
               </div>
 
@@ -1408,9 +1659,45 @@ onUnmounted(() => {
         <p v-else-if="recordingsOf(detailMeeting).some(isProcessingSeg)" class="detail-play-hint">
           录制文件处理中，就绪后将自动可播
         </p>
-        <p v-else-if="!recordingsOf(detailMeeting).length" class="detail-play-hint">
-          这场会议没有录制文件
-        </p>
+
+        <div class="detail-minutes">
+          <div class="detail-segs-title">
+            会议纪要
+            <span class="detail-minutes-status">{{ minutesStatusText(detailMinutes?.status) }}</span>
+          </div>
+          <p v-if="minutesLoading && !detailMinutes" class="detail-play-hint">纪要加载中…</p>
+          <p v-else-if="detailMinutes?.status === 'unavailable'" class="detail-play-hint">
+            该会议没有音频，无法生成会议纪要。
+          </p>
+          <p v-else-if="detailMinutes?.status === 'skipped_empty'" class="detail-play-hint">
+            该会议没有音频，无法生成会议纪要。
+          </p>
+          <p v-else-if="detailMinutes?.status === 'failed'" class="detail-play-hint">
+            生成失败：{{ detailMinutes.errorMsg || '未知错误' }}
+          </p>
+          <p
+            v-else-if="detailMinutes && ['pending','transcribing','summarizing'].includes(detailMinutes.status)"
+            class="detail-play-hint"
+          >
+            会议纪要正在编写，完成后会自动更新。
+          </p>
+          <template v-else-if="detailMinutes?.status === 'ready'">
+            <div class="detail-minutes-summary">{{ detailMinutes.summary }}</div>
+            <ul v-if="detailMinutes.structured?.todos?.length" class="detail-minutes-list">
+              <li v-for="(t, i) in detailMinutes.structured.todos" :key="'todo-'+i">待办：{{ t }}</li>
+            </ul>
+            <ul v-if="detailMinutes.structured?.decisions?.length" class="detail-minutes-list">
+              <li v-for="(t, i) in detailMinutes.structured.decisions" :key="'dec-'+i">决议：{{ t }}</li>
+            </ul>
+            <ul v-if="detailMinutes.structured?.risks?.length" class="detail-minutes-list">
+              <li v-for="(t, i) in detailMinutes.structured.risks" :key="'risk-'+i">风险：{{ t }}</li>
+            </ul>
+          </template>
+          <p v-else class="detail-play-hint">暂无纪要</p>
+          <div v-if="detailMeeting.isHost" class="detail-minutes-actions">
+            <Button size="small" :loading="minutesRegenning" @click="onRegenerateMinutes">重新生成</Button>
+          </div>
+        </div>
 
         <div v-if="recordingsOf(detailMeeting).length" class="detail-segs">
           <div class="detail-segs-title">录制分段</div>
@@ -1448,6 +1735,19 @@ onUnmounted(() => {
         </div>
       </div>
     </Modal>
+    <Teleport to="body">
+      <div v-if="minutesHintLoading" class="minutes-settle" role="status" aria-live="polite">
+        <div class="minutes-settle-card">
+          <div class="minutes-settle-orb" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <p class="minutes-settle-title">会议已结束</p>
+          <p class="minutes-settle-sub">{{ minutesHintText }}</p>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -2866,6 +3166,90 @@ html[data-theme='dark'] .time-hint {
   border-radius: 14px;
 }
 
+.minutes-settle {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(10px);
+}
+html[data-theme='dark'] .minutes-settle {
+  background: rgba(2, 6, 23, 0.55);
+}
+
+.minutes-settle-card {
+  width: min(360px, 100%);
+  padding: 28px 24px 24px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #fff;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+  text-align: center;
+}
+html[data-theme='dark'] .minutes-settle-card {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: #111827;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.minutes-settle-orb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+}
+.minutes-settle-orb span {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: #f3a04c;
+  border-right-color: rgba(243, 160, 76, 0.35);
+  animation: minutes-settle-spin 1s linear infinite;
+}
+.minutes-settle-orb span:nth-child(2) {
+  inset: 8px;
+  animation-duration: 1.4s;
+  animation-direction: reverse;
+  border-top-color: #10b981;
+  border-right-color: rgba(16, 185, 129, 0.3);
+}
+.minutes-settle-orb span:nth-child(3) {
+  inset: 16px;
+  animation-duration: 0.8s;
+  border-top-color: #f3a04c;
+  opacity: 0.7;
+}
+
+.minutes-settle-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  color: rgba(15, 23, 42, 0.92);
+}
+html[data-theme='dark'] .minutes-settle-title {
+  color: rgba(248, 250, 252, 0.94);
+}
+
+.minutes-settle-sub {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(15, 23, 42, 0.6);
+}
+html[data-theme='dark'] .minutes-settle-sub {
+  color: rgba(226, 232, 240, 0.68);
+}
+
+@keyframes minutes-settle-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .invite-modal .ant-modal-header,
 .detail-modal .ant-modal-header {
   margin: 0;
@@ -2889,5 +3273,35 @@ html[data-theme='dark'] .time-hint {
 .invite-modal .ant-modal-body,
 .detail-modal .ant-modal-body {
   padding: 4px 24px 22px;
+}
+
+.detail-minutes {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(127, 127, 127, 0.2);
+}
+.detail-minutes-status {
+  margin-left: 8px;
+  font-weight: 400;
+  opacity: 0.75;
+  font-size: 13px;
+}
+.detail-minutes-summary {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  margin: 8px 0 12px;
+}
+.detail-minutes-list {
+  margin: 0 0 8px;
+  padding-left: 1.2em;
+}
+.detail-minutes-actions {
+  margin-top: 8px;
+}
+.card-meta-minutes {
+  margin-top: 10px;
+}
+.card-meta-minutes .recording-link {
+  margin-left: 4px;
 }
 </style>

@@ -13,6 +13,7 @@ import (
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/webhook"
 )
 
@@ -88,6 +89,39 @@ func HandleLiveKitWebhook(r *ghttp.Request) {
 		if meeting, gErr := service.SysMeeting().GetByRoomName(ctx, room); gErr == nil && meeting != nil {
 			if autoErr := service.SysRecording().TryAutoStart(ctx, meeting, 0); autoErr != nil {
 				g.Log().Warningf(ctx, "conference webhook auto-start recording failed room=%s err=%+v", room, autoErr)
+			}
+			if aiErr := service.SysRecording().TryStartAiCapture(ctx, meeting, 0); aiErr != nil {
+				g.Log().Warningf(ctx, "conference webhook auto-start AI capture failed room=%s err=%+v", room, aiErr)
+			}
+		}
+		r.Response.WriteStatus(200)
+		return
+	case webhook.EventTrackPublished:
+		identity := ""
+		if p := event.GetParticipant(); p != nil {
+			identity = strings.TrimSpace(p.GetIdentity())
+		}
+		if identity != "" && strings.HasPrefix(identity, "EG_") {
+			r.Response.WriteStatus(200)
+			return
+		}
+		track := event.GetTrack()
+		if track == nil || track.Type != livekit.TrackType_AUDIO {
+			r.Response.WriteStatus(200)
+			return
+		}
+		room := ""
+		if event.GetRoom() != nil {
+			room = strings.TrimSpace(event.GetRoom().GetName())
+		}
+		if room == "" {
+			r.Response.WriteStatus(200)
+			return
+		}
+		// 关麦进房时 AI 音源可能因无音轨启动失败；麦克风或屏幕共享音频出现后再开一次
+		if meeting, gErr := service.SysMeeting().GetByRoomName(ctx, room); gErr == nil && meeting != nil {
+			if aiErr := service.SysRecording().TryStartAiCapture(ctx, meeting, 0); aiErr != nil {
+				g.Log().Warningf(ctx, "conference webhook AI capture on audio track failed room=%s err=%+v", room, aiErr)
 			}
 		}
 		r.Response.WriteStatus(200)

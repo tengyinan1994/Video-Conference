@@ -151,32 +151,36 @@ func (s *sSysMeeting) List(ctx context.Context, in *sysin.MeetingListInp) (list 
 	}
 	attachMeetingTypeNames(ctx, list)
 	attachMeetingRecordings(ctx, list)
+	attachMeetingMinutes(ctx, list)
 	return
 }
 
-func (s *sSysMeeting) Release(ctx context.Context, in *sysin.MeetingReleaseInp) (err error) {
+func (s *sSysMeeting) Release(ctx context.Context, in *sysin.MeetingReleaseInp) (res *sysin.MeetingReleaseModel, err error) {
 	if err = in.Filter(ctx); err != nil {
 		return
 	}
 	user := contexts.GetUser(ctx)
 	if user == nil || user.Id <= 0 {
-		return gerror.New("请先登录")
+		return nil, gerror.New("请先登录")
 	}
 
 	var m *entity.Meeting
 	if err = meetingModel(ctx).Where("id", in.Id).Scan(&m); err != nil {
-		return gerror.Wrap(err, "查询会议室失败")
+		return nil, gerror.Wrap(err, "查询会议室失败")
 	}
 	if m == nil {
-		return gerror.New("会议室不存在")
+		return nil, gerror.New("会议室不存在")
 	}
 	if isEndedStatus(m.Status) {
-		return nil
+		return &sysin.MeetingReleaseModel{Minutes: minutesSnapshot(ctx, m.Id)}, nil
 	}
 	if m.HostId != user.Id && !iservice.AdminMember().VerifySuperId(ctx, user.Id) {
-		return gerror.New("仅主持人可结束会议室")
+		return nil, gerror.New("仅主持人可结束会议室")
 	}
-	return s.endMeeting(ctx, m, true)
+	if err = s.endMeeting(ctx, m, true); err != nil {
+		return nil, err
+	}
+	return &sysin.MeetingReleaseModel{Minutes: minutesSnapshot(ctx, m.Id)}, nil
 }
 
 func (s *sSysMeeting) Delete(ctx context.Context, in *sysin.MeetingDeleteInp) (err error) {
@@ -206,6 +210,7 @@ func (s *sSysMeeting) Delete(ctx context.Context, in *sysin.MeetingDeleteInp) (e
 		return gerror.Wrap(err, "删除会议室失败")
 	}
 	service.SysRecording().StopAllForMeeting(ctx, m.Id, m.RoomName)
+	service.SysRecording().StopAllAiForMeeting(ctx, m.Id, m.RoomName)
 	s.cleanupLiveKitRoom(ctx, m.RoomName)
 	return nil
 }
@@ -414,8 +419,26 @@ func (s *sSysMeeting) endMeeting(ctx context.Context, m *entity.Meeting, syncEnd
 		return gerror.Wrap(err, "更新会议室状态失败")
 	}
 	service.SysRecording().StopAllForMeeting(ctx, m.Id, m.RoomName)
-	s.cleanupLiveKitRoom(ctx, m.RoomName)
+	service.SysRecording().StopAllAiForMeeting(ctx, m.Id, m.RoomName)
+	if enqErr := service.SysMinutes().TryEnqueue(ctx, m.Id, false); enqErr != nil {
+		g.Log().Warningf(ctx, "conference enqueue minutes on end meeting=%d err=%+v", m.Id, enqErr)
+	}
+	// 等 Egress 收尾再删房，避免 AI/回放仍 STARTING 时被 DeleteRoom 打成 Start signal not received
+	roomName := m.RoomName
+	meetingId := m.Id
+	go s.cleanupLiveKitRoomAfterEgress(context.Background(), meetingId, roomName)
 	return nil
+}
+
+func (s *sSysMeeting) cleanupLiveKitRoomAfterEgress(ctx context.Context, meetingId int64, roomName string) {
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if !hasInFlightRecordingAnyPurpose(ctx, meetingId) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	s.cleanupLiveKitRoom(ctx, roomName)
 }
 
 func (s *sSysMeeting) cleanupLiveKitRoom(ctx context.Context, roomName string) {
@@ -431,6 +454,18 @@ func (s *sSysMeeting) cleanupLiveKitRoom(ctx context.Context, roomName string) {
 
 func isEndedStatus(status string) bool {
 	return status == consts.MeetingStatusEnded || status == consts.MeetingStatusReleased
+}
+
+func minutesSnapshot(ctx context.Context, meetingId int64) *sysin.MinutesModel {
+	if meetingId <= 0 {
+		return nil
+	}
+	byID, err := service.SysMinutes().ListByMeetingIDs(ctx, []int64{meetingId})
+	if err != nil {
+		g.Log().Warningf(ctx, "minutes snapshot meeting=%d err=%+v", meetingId, err)
+		return nil
+	}
+	return byID[meetingId]
 }
 
 // meetingOngoing 会议是否处于进行中：已有首个真人进房（started_at 非空），
@@ -793,6 +828,7 @@ func (s *sSysMeeting) AdminDelete(ctx context.Context, in *sysin.AdminMeetingDel
 			continue
 		}
 		service.SysRecording().StopAllForMeeting(ctx, m.Id, m.RoomName)
+		service.SysRecording().StopAllAiForMeeting(ctx, m.Id, m.RoomName)
 		s.cleanupLiveKitRoom(ctx, m.RoomName)
 	}
 	return nil
@@ -910,6 +946,43 @@ func attachMeetingRecordings(ctx context.Context, list []*sysin.MeetingItemModel
 		item.Recordings = byID[item.Id]
 		if item.Recordings == nil {
 			item.Recordings = []*sysin.RecordingSegmentModel{}
+		}
+	}
+}
+
+func attachMeetingMinutes(ctx context.Context, list []*sysin.MeetingItemModel) {
+	if len(list) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(list))
+	for _, item := range list {
+		if item != nil && item.Id > 0 && isEndedStatus(item.Status) {
+			ids = append(ids, item.Id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	byID, err := service.SysMinutes().ListByMeetingIDs(ctx, ids)
+	if err != nil {
+		g.Log().Warningf(ctx, "attach meeting minutes failed: %+v", err)
+		return
+	}
+	for _, item := range list {
+		if item == nil {
+			continue
+		}
+		if m := byID[item.Id]; m != nil {
+			// 列表不带全文转写，减小体积
+			item.Minutes = &sysin.MinutesModel{
+				MeetingId:   m.MeetingId,
+				Status:      m.Status,
+				Summary:     m.Summary,
+				Structured:  m.Structured,
+				ErrorMsg:    m.ErrorMsg,
+				Model:       m.Model,
+				GeneratedAt: m.GeneratedAt,
+			}
 		}
 	}
 }

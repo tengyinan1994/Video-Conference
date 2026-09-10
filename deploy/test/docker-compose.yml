@@ -192,6 +192,40 @@ services:
       - ./config:/app/manifest/config:ro
       - ${DATA_DIR}/hotgo/logs:/app/logs
       - ${DATA_DIR}/hotgo/storage:/app/storage
+
+  minutes-worker:
+    image: ${MINUTES_WORKER_IMAGE:-video-conference/minutes-worker:amd64}
+    container_name: vc-minutes-worker
+    restart: unless-stopped
+    environment:
+      PORT: "8090"
+      ASR_BACKEND: ${ASR_BACKEND:-funasr}
+      MOCK_LLM: ${MOCK_LLM:-0}
+      FUNASR_MODEL: ${FUNASR_MODEL:-paraformer-zh}
+      FUNASR_VAD_MODEL: ${FUNASR_VAD_MODEL:-fsmn-vad}
+      FUNASR_PUNC_MODEL: ${FUNASR_PUNC_MODEL:-ct-punc}
+      MODELSCOPE_CACHE: /data/models
+      HOME: /data
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com}
+      OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
+      HOTGO_CALLBACK_URL: http://hotgo:8000/api/conference/minutes/callback
+      MINUTES_WORKER_SECRET: ${MINUTES_WORKER_SECRET:-dev-minutes-secret}
+      S3_ENDPOINT: http://rustfs:9000
+      S3_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      S3_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+      S3_BUCKET: recordings
+      S3_FORCE_PATH_STYLE: "true"
+    volumes:
+      - ${DATA_DIR}/minutes-worker:/data
+    networks:
+      - vc_net
+    depends_on:
+      rustfs:
+        condition: service_healthy
+      hotgo:
+        condition: service_started
+
   # 管理后台独立 HTTPS 网关（反代 HotGo）
   admin:
     image: video-conference/admin:${ARCH:-amd64}

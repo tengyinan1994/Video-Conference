@@ -26,7 +26,11 @@ cp deploy/test/config/config.example.yaml deploy/test/config/config.yaml
 ./deploy/test/deploy.sh update client
 ./deploy/test/deploy.sh update admin
 ./deploy/test/deploy.sh update livekit
+./deploy/test/deploy.sh update minutes-worker
 ```
+
+会后 AI 纪要依赖 `minutes-worker`（见 `services/minutes-worker/README.md`）。真实 LLM：在 `.env` 填 `OPENAI_API_KEY` 并设 `MOCK_LLM=0`。
+
 
 ## 运维
 

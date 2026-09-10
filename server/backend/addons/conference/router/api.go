@@ -18,6 +18,8 @@ func Api(ctx context.Context, group *ghttp.RouterGroup) {
 	group.Group(prefix, func(group *ghttp.RouterGroup) {
 		// LiveKit webhook 需原始 Body 验签，不用 Bind
 		group.POST("/webhook/livekit", api.HandleLiveKitWebhook)
+		// 纪要 Worker 回调验签
+		group.POST("/minutes/callback", api.HandleMinutesCallback)
 
 		group.Bind(
 			api.AuthPublic,
@@ -36,6 +38,7 @@ func Api(ctx context.Context, group *ghttp.RouterGroup) {
 				api.Meeting,
 				api.MeetingTypeOptions,
 				api.Recording,
+				api.Minutes,
 			)
 		})
 	})

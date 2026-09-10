@@ -65,7 +65,7 @@ func (s *sSysRecording) Start(ctx context.Context, in *sysin.RecordingStartInp) 
 	if err = service.SysMeeting().AssertJoinable(ctx, meeting); err != nil {
 		return
 	}
-	seg, err := s.startSegment(ctx, meeting, user.Id)
+	seg, err := s.startSegment(ctx, meeting, user.Id, consts.RecordingPurposePlayback)
 	if err != nil {
 		return
 	}
@@ -91,7 +91,7 @@ func (s *sSysRecording) Stop(ctx context.Context, in *sysin.RecordingStopInp) (r
 	if meeting.HostId != user.Id {
 		return nil, gerror.New("仅主持人可停止录制")
 	}
-	seg, err := s.stopActiveSegment(ctx, meeting.Id, meeting.RoomName)
+	seg, err := s.stopActiveSegment(ctx, meeting.Id, meeting.RoomName, consts.RecordingPurposePlayback)
 	if err != nil {
 		return
 	}
@@ -123,7 +123,11 @@ func (s *sSysRecording) Status(ctx context.Context, in *sysin.RecordingStatusInp
 	}
 
 	var rows []*entity.Recording
-	if err = recordingModel(ctx).Where("meeting_id", meeting.Id).OrderAsc("seq").Scan(&rows); err != nil {
+	if err = recordingModel(ctx).
+		Where("meeting_id", meeting.Id).
+		Where("purpose", consts.RecordingPurposePlayback).
+		OrderAsc("seq").
+		Scan(&rows); err != nil {
 		return nil, gerror.Wrap(err, "查询录制记录失败")
 	}
 	segments := make([]*sysin.RecordingSegmentModel, 0, len(rows))
@@ -147,12 +151,32 @@ func (s *sSysRecording) TryAutoStart(ctx context.Context, meeting *entity.Meetin
 	if meeting == nil || meeting.RecordEnabled == 0 || meeting.Id <= 0 {
 		return nil
 	}
-	if hasActiveRecording(ctx, meeting.Id) {
+	if hasActiveRecording(ctx, meeting.Id, consts.RecordingPurposePlayback) {
 		return nil
 	}
-	_, err := s.startSegment(ctx, meeting, startedBy)
+	_, err := s.startSegment(ctx, meeting, startedBy, consts.RecordingPurposePlayback)
 	if err != nil {
 		g.Log().Warningf(ctx, "conference auto-start recording failed meeting=%d room=%s err=%+v", meeting.Id, meeting.RoomName, err)
+		return err
+	}
+	return nil
+}
+
+// TryStartAiCapture 纪要音源：minutes 开启时首个真人进房自动开 audio-only Egress，与回放录制独立。
+func (s *sSysRecording) TryStartAiCapture(ctx context.Context, meeting *entity.Meeting, startedBy int64) error {
+	if meeting == nil || meeting.Id <= 0 {
+		return nil
+	}
+	cfg, err := loadMinutesConfig(ctx)
+	if err != nil || cfg == nil || !cfg.Enabled {
+		return nil
+	}
+	if hasActiveRecording(ctx, meeting.Id, consts.RecordingPurposeAI) {
+		return nil
+	}
+	_, err = s.startSegment(ctx, meeting, startedBy, consts.RecordingPurposeAI)
+	if err != nil {
+		g.Log().Warningf(ctx, "conference auto-start AI capture failed meeting=%d room=%s err=%+v", meeting.Id, meeting.RoomName, err)
 		return err
 	}
 	return nil
@@ -164,7 +188,11 @@ func (s *sSysRecording) ListByMeetingIDs(ctx context.Context, meetingIDs []int64
 		return out, nil
 	}
 	var rows []*entity.Recording
-	if err := recordingModel(ctx).WhereIn("meeting_id", meetingIDs).OrderAsc("seq").Scan(&rows); err != nil {
+	if err := recordingModel(ctx).
+		WhereIn("meeting_id", meetingIDs).
+		Where("purpose", consts.RecordingPurposePlayback).
+		OrderAsc("seq").
+		Scan(&rows); err != nil {
 		return nil, gerror.Wrap(err, "查询录制记录失败")
 	}
 	for _, r := range rows {
@@ -176,17 +204,29 @@ func (s *sSysRecording) ListByMeetingIDs(ctx context.Context, meetingIDs []int64
 	return out, nil
 }
 
-// StopAllForMeeting 结束会议时停止进行中的录制
+// StopAllForMeeting 结束会议时停止进行中的回放录制
 func (s *sSysRecording) StopAllForMeeting(ctx context.Context, meetingId int64, roomName string) {
 	if meetingId <= 0 {
 		return
 	}
-	if _, err := s.stopActiveSegment(ctx, meetingId, roomName); err != nil {
-		// 无进行中段不算错误
+	if _, err := s.stopActiveSegment(ctx, meetingId, roomName, consts.RecordingPurposePlayback); err != nil {
 		if strings.Contains(err.Error(), "当前没有进行中的录制") {
 			return
 		}
 		g.Log().Warningf(ctx, "conference stop recording on end failed meeting=%d err=%+v", meetingId, err)
+	}
+}
+
+// StopAllAiForMeeting 结束会议时停止 AI 音源采集
+func (s *sSysRecording) StopAllAiForMeeting(ctx context.Context, meetingId int64, roomName string) {
+	if meetingId <= 0 {
+		return
+	}
+	if _, err := s.stopActiveSegment(ctx, meetingId, roomName, consts.RecordingPurposeAI); err != nil {
+		if strings.Contains(err.Error(), "当前没有进行中的录制") {
+			return
+		}
+		g.Log().Warningf(ctx, "conference stop AI capture on end failed meeting=%d err=%+v", meetingId, err)
 	}
 }
 
@@ -236,10 +276,27 @@ func (s *sSysRecording) HandleEgressWebhook(ctx context.Context, info *livekit.E
 	}
 	if _, err := recordingModel(ctx).Where("id", row.Id).Data(data).Update(); err != nil {
 		g.Log().Warningf(ctx, "conference update recording from webhook failed egress=%s err=%+v", info.EgressId, err)
+		return
+	}
+	// AI 音源终态都要尝试入队：成功则派单；失败则落 unavailable，避免会结束时 inFlight 跳过导致永远「AI编写中」
+	if recordingPurposeOf(row) == consts.RecordingPurposeAI {
+		switch info.Status {
+		case livekit.EgressStatus_EGRESS_COMPLETE,
+			livekit.EgressStatus_EGRESS_FAILED,
+			livekit.EgressStatus_EGRESS_ABORTED,
+			livekit.EgressStatus_EGRESS_LIMIT_REACHED:
+			if err := service.SysMinutes().TryEnqueue(ctx, row.MeetingId, false); err != nil {
+				g.Log().Warningf(ctx, "conference enqueue minutes after AI egress meeting=%d status=%v err=%+v", row.MeetingId, info.Status, err)
+			}
+		}
 	}
 }
 
-func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meeting, startedBy int64) (*entity.Recording, error) {
+func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meeting, startedBy int64, purpose string) (*entity.Recording, error) {
+	purpose = strings.TrimSpace(purpose)
+	if purpose == "" {
+		purpose = consts.RecordingPurposePlayback
+	}
 	recCfg, err := loadRecordingConfig(ctx)
 	if err != nil {
 		return nil, err
@@ -250,7 +307,7 @@ func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meetin
 	if strings.TrimSpace(recCfg.S3.Endpoint) == "" || strings.TrimSpace(recCfg.S3.Bucket) == "" {
 		return nil, gerror.New("录制存储未配置，请检查 recording.s3")
 	}
-	if hasActiveRecording(ctx, meeting.Id) {
+	if hasActiveRecording(ctx, meeting.Id, purpose) {
 		return nil, gerror.New("当前已有进行中的录制，请先停止")
 	}
 
@@ -258,26 +315,33 @@ func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meetin
 		g.Log().Warningf(ctx, "ensure recording bucket: %+v", err)
 	}
 
-	seq := nextRecordingSeq(ctx, meeting.Id)
-	objectKey := fmt.Sprintf("%d/%d_{time}.mp4", meeting.Id, seq)
+	seq := nextRecordingSeq(ctx, meeting.Id, purpose)
+	audioOnly := purpose == consts.RecordingPurposeAI
+	var objectKey string
+	var fileType livekit.EncodedFileType
+	if audioOnly {
+		objectKey = fmt.Sprintf("%d/ai/%d_{time}.ogg", meeting.Id, seq)
+		fileType = livekit.EncodedFileType_OGG
+	} else {
+		objectKey = fmt.Sprintf("%d/%d_{time}.mp4", meeting.Id, seq)
+		fileType = livekit.EncodedFileType_MP4
+	}
 
 	client, _, _, err := newEgressClient(ctx)
 	if err != nil {
 		return nil, err
 	}
+	// Token 下发时房间可能尚未创建；先 EnsureCreate，避免「requested room does not exist」
+	if err = ensureLiveKitRoom(ctx, meeting.RoomName); err != nil {
+		g.Log().Warningf(ctx, "ensure livekit room before egress meeting=%d room=%s err=%+v", meeting.Id, meeting.RoomName, err)
+	}
 
 	forcePath := recCfg.S3.ForcePathStyle
-	enc := recordingEncoding(recCfg)
-	customBase := strings.TrimSpace(recCfg.CustomBaseUrl)
-	g.Log().Infof(ctx, "start room composite encoding=%dx%d@%dfps %dkbps codec=%s meeting=%d customBase=%q",
-		enc.Width, enc.Height, enc.Framerate, enc.VideoBitrate, enc.VideoCodec.String(), meeting.Id, customBase)
 	req := &livekit.RoomCompositeEgressRequest{
-		RoomName: meeting.RoomName,
-		Options: &livekit.RoomCompositeEgressRequest_Advanced{
-			Advanced: enc,
-		},
+		RoomName:  meeting.RoomName,
+		AudioOnly: audioOnly,
 		FileOutputs: []*livekit.EncodedFileOutput{{
-			FileType: livekit.EncodedFileType_MP4,
+			FileType: fileType,
 			Filepath: objectKey,
 			Output: &livekit.EncodedFileOutput_S3{
 				S3: &livekit.S3Upload{
@@ -291,16 +355,32 @@ func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meetin
 			},
 		}},
 	}
-	if customBase != "" {
-		// 自定义布局：由会议室页面渲染并主动打印 START_RECORDING，无轨道也能录制
-		req.CustomBaseUrl = customBase
+	if !audioOnly {
+		enc := recordingEncoding(recCfg)
+		customBase := strings.TrimSpace(recCfg.CustomBaseUrl)
+		g.Log().Infof(ctx, "start room composite encoding=%dx%d@%dfps %dkbps codec=%s meeting=%d customBase=%q",
+			enc.Width, enc.Height, enc.Framerate, enc.VideoBitrate, enc.VideoCodec.String(), meeting.Id, customBase)
+		req.Options = &livekit.RoomCompositeEgressRequest_Advanced{
+			Advanced: enc,
+		}
+		if customBase != "" {
+			req.CustomBaseUrl = customBase
+		} else {
+			req.Layout = "speaker"
+		}
 	} else {
-		// 默认布局（向后兼容）：2K@60 对齐会中投屏，Room Composite 默认 720p30
-		req.Layout = "speaker"
+		customBase := strings.TrimSpace(recCfg.CustomBaseUrl)
+		if customBase != "" {
+			req.CustomBaseUrl = customBase
+		}
+		g.Log().Infof(ctx, "start AI audio-only egress meeting=%d room=%s customBase=%q", meeting.Id, meeting.RoomName, customBase)
 	}
 
 	info, err := client.StartRoomCompositeEgress(ctx, req)
 	if err != nil {
+		if audioOnly {
+			return nil, gerror.Wrap(err, "启动 AI 音源采集失败")
+		}
 		return nil, gerror.Wrap(err, "启动录制失败")
 	}
 
@@ -314,6 +394,7 @@ func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meetin
 		"room_name":  meeting.RoomName,
 		"egress_id":  info.EgressId,
 		"seq":        seq,
+		"purpose":    purpose,
 		"status":     status,
 		"object_key": objectKey,
 		"started_at": now,
@@ -322,7 +403,6 @@ func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meetin
 		"updated_at": now,
 	}).InsertAndGetId()
 	if err != nil {
-		// 尽力停掉已启动的 egress，避免孤儿任务
 		_, _ = client.StopEgress(ctx, &livekit.StopEgressRequest{EgressId: info.EgressId})
 		return nil, gerror.Wrap(err, "保存录制记录失败")
 	}
@@ -334,10 +414,15 @@ func (s *sSysRecording) startSegment(ctx context.Context, meeting *entity.Meetin
 	return row, nil
 }
 
-func (s *sSysRecording) stopActiveSegment(ctx context.Context, meetingId int64, roomName string) (*entity.Recording, error) {
+func (s *sSysRecording) stopActiveSegment(ctx context.Context, meetingId int64, roomName string, purpose string) (*entity.Recording, error) {
+	purpose = strings.TrimSpace(purpose)
+	if purpose == "" {
+		purpose = consts.RecordingPurposePlayback
+	}
 	var row *entity.Recording
 	err := recordingModel(ctx).
 		Where("meeting_id", meetingId).
+		Where("purpose", purpose).
 		WhereIn("status", g.Slice{consts.RecordingStatusStarting, consts.RecordingStatusActive}).
 		OrderDesc("id").
 		Limit(1).
@@ -387,9 +472,14 @@ func stopEgressAsync(egressId string) {
 	}(egressId)
 }
 
-func hasActiveRecording(ctx context.Context, meetingId int64) bool {
+func hasActiveRecording(ctx context.Context, meetingId int64, purpose string) bool {
+	purpose = strings.TrimSpace(purpose)
+	if purpose == "" {
+		purpose = consts.RecordingPurposePlayback
+	}
 	count, err := recordingModel(ctx).
 		Where("meeting_id", meetingId).
+		Where("purpose", purpose).
 		WhereIn("status", g.Slice{
 			consts.RecordingStatusStarting,
 			consts.RecordingStatusActive,
@@ -401,8 +491,70 @@ func hasActiveRecording(ctx context.Context, meetingId int64) bool {
 	return count > 0
 }
 
-func nextRecordingSeq(ctx context.Context, meetingId int64) int {
-	val, err := recordingModel(ctx).Where("meeting_id", meetingId).Max("seq")
+func hasInFlightRecordingAnyPurpose(ctx context.Context, meetingId int64) bool {
+	return hasInFlightRecording(ctx, meetingId, "")
+}
+
+func hasInFlightRecording(ctx context.Context, meetingId int64, purpose string) bool {
+	if meetingId <= 0 {
+		return false
+	}
+	mod := recordingModel(ctx).
+		Where("meeting_id", meetingId).
+		WhereIn("status", g.Slice{
+			consts.RecordingStatusStarting,
+			consts.RecordingStatusActive,
+			consts.RecordingStatusStopping,
+		})
+	if purpose = strings.TrimSpace(purpose); purpose != "" {
+		mod = mod.Where("purpose", purpose)
+	}
+	count, err := mod.Count()
+	if err != nil {
+		return false
+	}
+	return count > 0
+}
+
+// waitAiCaptureSettle 结束会议时等 AI 音源落到终态，便于立刻区分「可编写纪要」和「没有音频」。
+func waitAiCaptureSettle(ctx context.Context, meetingId int64, timeout time.Duration) {
+	if meetingId <= 0 || timeout <= 0 {
+		return
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !hasInFlightRecording(ctx, meetingId, consts.RecordingPurposeAI) {
+			return
+		}
+		timer := time.NewTimer(400 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func ensureLiveKitRoom(ctx context.Context, roomName string) error {
+	roomName = strings.TrimSpace(roomName)
+	if roomName == "" {
+		return gerror.New("房间名为空")
+	}
+	client, _, err := newRoomServiceClient(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: roomName})
+	return err
+}
+
+func nextRecordingSeq(ctx context.Context, meetingId int64, purpose string) int {
+	purpose = strings.TrimSpace(purpose)
+	if purpose == "" {
+		purpose = consts.RecordingPurposePlayback
+	}
+	val, err := recordingModel(ctx).Where("meeting_id", meetingId).Where("purpose", purpose).Max("seq")
 	if err != nil {
 		return 1
 	}
@@ -411,6 +563,17 @@ func nextRecordingSeq(ctx context.Context, meetingId int64) int {
 		return 1
 	}
 	return n + 1
+}
+
+func recordingPurposeOf(r *entity.Recording) string {
+	if r == nil {
+		return consts.RecordingPurposePlayback
+	}
+	p := strings.TrimSpace(r.Purpose)
+	if p == "" {
+		return consts.RecordingPurposePlayback
+	}
+	return p
 }
 
 func toRecordingSegment(ctx context.Context, r *entity.Recording) *sysin.RecordingSegmentModel {
@@ -424,6 +587,7 @@ func toRecordingSegment(ctx context.Context, r *entity.Recording) *sysin.Recordi
 		RoomName:    r.RoomName,
 		EgressId:    r.EgressId,
 		Seq:         r.Seq,
+		Purpose:     recordingPurposeOf(r),
 		Status:      r.Status,
 		ObjectKey:   r.ObjectKey,
 		FileSize:    r.FileSize,
@@ -444,6 +608,9 @@ func recordingFileName(r *entity.Recording) string {
 
 func recordingAccessURLs(ctx context.Context, r *entity.Recording) (playURL, downloadURL string) {
 	if r == nil || r.Status != consts.RecordingStatusComplete {
+		return "", ""
+	}
+	if recordingPurposeOf(r) != consts.RecordingPurposePlayback {
 		return "", ""
 	}
 	key := strings.TrimSpace(r.ObjectKey)
@@ -661,6 +828,9 @@ func loadReadyRecording(ctx context.Context, id int64) (*entity.Recording, *mode
 		return nil, nil, gerror.Wrap(err, "查询录制记录失败")
 	}
 	if row == nil || row.Id == 0 {
+		return nil, nil, gerror.New("录制不存在")
+	}
+	if recordingPurposeOf(row) != consts.RecordingPurposePlayback {
 		return nil, nil, gerror.New("录制不存在")
 	}
 	if row.Status != consts.RecordingStatusComplete {

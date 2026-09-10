@@ -33,3 +33,11 @@ type RecordingS3 struct {
 	Region         string `json:"region"`
 	ForcePathStyle bool   `json:"forcePathStyle"`
 }
+
+// MinutesConfig 会后 AI 纪要
+type MinutesConfig struct {
+	Enabled         bool   `json:"enabled"`
+	WorkerUrl       string `json:"workerUrl"`       // Python Worker 基址，如 http://minutes-worker:8090
+	CallbackSecret  string `json:"callbackSecret"`  // 派单/回调共享密钥
+	MinTranscriptChars int `json:"minTranscriptChars"` // 低于此字数视为无有效发言
+}

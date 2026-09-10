@@ -157,6 +157,22 @@ export_livekit_tar() {
   docker save "video-conference/livekit:${arch}" -o "${out_dir}/livekit-${arch}.tar"
 }
 
+docker_build_minutes_worker_image() {
+  local arch="$1"
+  local platform="$2"
+  local tag="video-conference/minutes-worker:${arch}"
+  echo "==> [${arch}] 打包 minutes-worker 镜像"
+  docker buildx build --platform "${platform}" \
+    -f "${ROOT}/services/minutes-worker/Dockerfile" \
+    -t "${tag}" --load "${ROOT}/services/minutes-worker"
+}
+
+export_minutes_worker_tar() {
+  local arch="$1"
+  local out_dir="${ROOT}/deploy/images/${arch}"
+  docker save "video-conference/minutes-worker:${arch}" -o "${out_dir}/minutes-worker-${arch}.tar"
+}
+
 build_service() {
   local arch="$1"
   local service="$2"
@@ -188,12 +204,16 @@ build_service() {
       docker_build_livekit_image "$arch" "$platform"
       export_livekit_tar "$arch"
       ;;
+    minutes-worker)
+      docker_build_minutes_worker_image "$arch" "$platform"
+      export_minutes_worker_tar "$arch"
+      ;;
     all)
       build_and_export "$arch" "$platform"
       return
       ;;
     *)
-      echo "未知服务: $service（可选 hotgo|client|admin|livekit|all）" >&2
+      echo "未知服务: $service（可选 hotgo|client|admin|livekit|minutes-worker|all）" >&2
       exit 1
       ;;
   esac
@@ -236,6 +256,8 @@ build_and_export() {
   export_client_tar "$arch"
   export_admin_tar "$arch"
   export_livekit_tar "$arch"
+  docker_build_minutes_worker_image "$arch" "$platform"
+  export_minutes_worker_tar "$arch"
 
   echo "==> [${arch}] 完成"
   ls -lh "${out_dir}"/*.tar

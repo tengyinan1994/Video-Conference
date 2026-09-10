@@ -1,0 +1,6 @@
+# CPU 版 PyTorch + FunASR（镜像较大，建议在 linux/amd64 宿主机构建）
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.4.1+cpu
+torchaudio==2.4.1+cpu
+funasr>=1.1.0
+modelscope>=1.14.0

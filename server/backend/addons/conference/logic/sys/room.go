@@ -208,6 +208,9 @@ func (s *sSysRoom) ClaimHost(ctx context.Context, in *sysin.RoomClaimHostInp) (r
 			g.Log().Warningf(ctx, "conference auto-start recording on claimHost failed meeting=%d err=%+v", meeting.Id, autoErr)
 		}
 	}
+	if aiErr := service.SysRecording().TryStartAiCapture(ctx, meeting, meeting.HostId); aiErr != nil {
+		g.Log().Warningf(ctx, "conference auto-start AI capture on claimHost failed meeting=%d err=%+v", meeting.Id, aiErr)
+	}
 	return
 }
 

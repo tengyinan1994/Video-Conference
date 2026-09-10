@@ -83,7 +83,7 @@ export const schemas = ref<FormSchema[]>([
     component: 'NInput',
     label: '关键词',
     componentProps: {
-      placeholder: '名称/主持人/房间/分享码',
+      placeholder: '名称/主持人',
     },
   },
   {

@@ -76,11 +76,24 @@ export interface MediaParticipant {
   /** 默认展示轨：有投屏优先进投屏，否则摄像头 */
   videoTrack?: AttachableTrack
   audioTrack?: AttachableTrack
+  /** 屏幕共享音频（标签页/系统声音），与麦克风分离 */
+  screenAudioTrack?: AttachableTrack
   isSpeaking: boolean
   isCameraEnabled: boolean
   isMicrophoneEnabled: boolean
   isScreenSharing: boolean
   connectionQuality: QualityLevel
+}
+
+/** 远端需播放的音频轨：麦克风 + 屏幕共享音频（本地共享者不回放，避免自己听回音） */
+export function collectRemoteAudioTracks(participants: MediaParticipant[]) {
+  const items: { key: string; track: AttachableTrack }[] = []
+  for (const p of participants) {
+    if (p.isLocal) continue
+    if (p.audioTrack) items.push({ key: `${p.identity}-mic`, track: p.audioTrack })
+    if (p.screenAudioTrack) items.push({ key: `${p.identity}-screen-audio`, track: p.screenAudioTrack })
+  }
+  return items
 }
 
 export interface ChatMessage {
@@ -396,6 +409,7 @@ export function useLiveKitRoom() {
       const cam = p.getTrackPublication(Track.Source.Camera)
       const mic = p.getTrackPublication(Track.Source.Microphone)
       const screen = p.getTrackPublication(Track.Source.ScreenShare)
+      const screenAudio = p.getTrackPublication(Track.Source.ScreenShareAudio)
       const cameraOn = isVideoPublicationActive(cam, isLocal)
       const screenOn = isVideoPublicationActive(screen, isLocal)
       const screenTrack = screenOn ? (screen?.track as AttachableTrack | undefined) : undefined
@@ -409,6 +423,7 @@ export function useLiveKitRoom() {
         screenTrack,
         videoTrack: screenTrack ?? cameraTrack,
         audioTrack: mic?.track as AttachableTrack | undefined,
+        screenAudioTrack: screenAudio?.track as AttachableTrack | undefined,
         isSpeaking: p.isSpeaking,
         isCameraEnabled: cameraOn,
         isMicrophoneEnabled: isLocal
@@ -787,6 +802,13 @@ export function useLiveKitRoom() {
         await local.setScreenShareEnabled(
           true,
           {
+            audio: {
+              // 共享的是视频/标签页声音，不要当成人声做降噪，否则内容音频会被吃掉
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+            systemAudio: 'include',
             contentHint: 'detail',
             resolution: {
               width: 2560,

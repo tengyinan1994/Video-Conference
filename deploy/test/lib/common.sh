@@ -41,7 +41,7 @@ image_tar_path() {
 compose_service_name() {
   local svc="$1"
   case "$svc" in
-    hotgo|client|admin|livekit) echo "$svc" ;;
-    *) echo "未知服务: $svc（可选 hotgo|client|admin|livekit）" >&2; exit 1 ;;
+    hotgo|client|admin|livekit|minutes-worker) echo "$svc" ;;
+    *) echo "未知服务: $svc（可选 hotgo|client|admin|livekit|minutes-worker）" >&2; exit 1 ;;
   esac
 }

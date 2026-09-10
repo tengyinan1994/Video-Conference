@@ -335,3 +335,11 @@ recording:
   # 网页开发 Vite 走 basicSsl 是 https，这里保持一致。
   # customBaseUrl: "https://host.docker.internal:5173/egress"
   publicEndpoint: ""  # 管理后台回放直链：填浏览器可达的 RustFS 地址（如 http://公网IP:17886）；不可用容器名 rustfs
+
+# 会后 AI 纪要（与回放录制解耦；依赖 AI audio-only Egress + minutes-worker）
+minutes:
+  enabled: true
+  workerUrl: "http://127.0.0.1:8090"
+  callbackSecret: "dev-minutes-secret"
+  minTranscriptChars: 8
+

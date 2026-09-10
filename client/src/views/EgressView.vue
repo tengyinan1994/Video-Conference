@@ -17,6 +17,7 @@ import {
   isEgressParticipant,
   isVideoPublicationActive,
   parseRoleHost,
+  collectRemoteAudioTracks,
   type AttachableTrack,
   type MediaParticipant,
 } from '@/composables/useLiveKitRoom'
@@ -61,6 +62,7 @@ function pushParticipant(list: MediaParticipant[], p: Participant, isLocal: bool
   const cam = p.getTrackPublication(Track.Source.Camera)
   const mic = p.getTrackPublication(Track.Source.Microphone)
   const screen = p.getTrackPublication(Track.Source.ScreenShare)
+  const screenAudio = p.getTrackPublication(Track.Source.ScreenShareAudio)
   const cameraOn = isVideoPublicationActive(cam, isLocal)
   const screenOn = isVideoPublicationActive(screen, isLocal)
   const screenTrack = screenOn ? (screen?.track as AttachableTrack | undefined) : undefined
@@ -74,6 +76,7 @@ function pushParticipant(list: MediaParticipant[], p: Participant, isLocal: bool
     screenTrack,
     videoTrack: screenTrack ?? cameraTrack,
     audioTrack: mic?.track as AttachableTrack | undefined,
+    screenAudioTrack: screenAudio?.track as AttachableTrack | undefined,
     isSpeaking: p.isSpeaking,
     isCameraEnabled: cameraOn,
     isMicrophoneEnabled: isLocal
@@ -153,6 +156,7 @@ const mainVideo = computed(() => {
 })
 const mainStageTrack = computed(() => mainVideo.value?.track)
 const mainIsScreen = computed(() => !!mainVideo.value?.isScreen)
+const remoteAudioTracks = computed(() => collectRemoteAudioTracks(participants.value))
 
 function bindRoomEvents(r: Room) {
   const refresh = () => rebuild()
@@ -336,6 +340,13 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </div>
+    <div class="remote-audio" aria-hidden="true">
+      <MediaTrack
+        v-for="item in remoteAudioTracks"
+        :key="item.key"
+        :track="item.track"
+      />
+    </div>
   </div>
 </template>
 
@@ -358,6 +369,20 @@ onBeforeUnmount(() => {
   --vc-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
   --vc-item-hover: rgba(255, 255, 255, 0.06);
   background: #0b1220;
+}
+
+.remote-audio {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  pointer-events: none;
 }
 
 .egress-header {

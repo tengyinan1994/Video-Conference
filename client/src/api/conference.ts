@@ -48,6 +48,23 @@ export interface MeetingItem {
   /** 会议类型名称，未分类为空 */
   typeName?: string
   recordings?: RecordingSegment[]
+  minutes?: MinutesInfo
+}
+
+export interface MinutesInfo {
+  meetingId: number
+  status: string
+  transcript?: string
+  summary?: string
+  structured?: {
+    todos?: string[]
+    decisions?: string[]
+    risks?: string[]
+  }
+  sourceRecordingIds?: number[]
+  errorMsg?: string
+  model?: string
+  generatedAt?: string
 }
 
 export interface MeetingTypeOption {
@@ -61,6 +78,7 @@ export interface RecordingSegment {
   roomName: string
   egressId: string
   seq: number
+  purpose?: string
   status: string
   objectKey: string
   fileSize: number
@@ -152,7 +170,7 @@ export function createMeeting(payload: {
 }
 
 export function endMeeting(id: number) {
-  return request<Record<string, never>>('/api/conference/meeting/release', {
+  return request<{ minutes?: MinutesInfo }>('/api/conference/meeting/release', {
     method: 'POST',
     body: JSON.stringify({ id }),
   })
@@ -206,6 +224,19 @@ export function recordingStatus(params: { room?: string; meetingId?: number }) {
   if (params.meetingId) q.set('meetingId', String(params.meetingId))
   return request<RecordingStatus>(`/api/conference/recording/status?${q.toString()}`, {
     method: 'GET',
+  })
+}
+
+export function viewMinutes(meetingId: number) {
+  return request<MinutesInfo>(`/api/conference/minutes/view?meetingId=${meetingId}`, {
+    method: 'GET',
+  })
+}
+
+export function regenerateMinutes(meetingId: number) {
+  return request<MinutesInfo>('/api/conference/minutes/regenerate', {
+    method: 'POST',
+    body: JSON.stringify({ meetingId }),
   })
 }
 

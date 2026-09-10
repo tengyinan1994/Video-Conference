@@ -56,6 +56,7 @@ type RecordingSegmentModel struct {
 	RoomName    string      `json:"roomName"`
 	EgressId    string      `json:"egressId"`
 	Seq         int         `json:"seq"`
+	Purpose     string      `json:"purpose,omitempty" dc:"playback|ai；对外列表仅 playback"`
 	Status      string      `json:"status"`
 	ObjectKey   string      `json:"objectKey"`
 	FileSize    int64       `json:"fileSize"`

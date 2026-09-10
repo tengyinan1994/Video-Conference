@@ -11,6 +11,7 @@ type Recording struct {
 	RoomName  string      `json:"roomName"  orm:"room_name"`
 	EgressId  string      `json:"egressId"  orm:"egress_id"`
 	Seq       int         `json:"seq"       orm:"seq"`
+	Purpose   string      `json:"purpose"   orm:"purpose"`
 	Status    string      `json:"status"    orm:"status"`
 	ObjectKey string      `json:"objectKey" orm:"object_key"`
 	FileSize  int64       `json:"fileSize"  orm:"file_size"`

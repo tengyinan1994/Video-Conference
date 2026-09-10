@@ -55,6 +55,7 @@ import { isLoggedIn } from '@/stores/auth'
 import {
   useLiveKitRoom,
   mediaErrorMessage,
+  collectRemoteAudioTracks,
   type AttachableTrack,
   type MediaParticipant,
 } from '@/composables/useLiveKitRoom'
@@ -311,10 +312,8 @@ async function syncHostRole() {
 
 const avatarParticipants = computed(() => participants.value)
 
-/** 远端音频与布局解耦：投屏/单主视图/侧栏隐藏时仍要播放别人说话 */
-const remoteAudioParticipants = computed(() =>
-  participants.value.filter((p) => !p.isLocal && p.audioTrack),
-)
+/** 远端音频与布局解耦：投屏/单主视图/侧栏隐藏时仍要播放别人说话和共享的标签页声音 */
+const remoteAudioTracks = computed(() => collectRemoteAudioTracks(participants.value))
 
 /** 侧栏只列出有画面的成员，便于切换主视图 */
 const sideParticipants = computed(() =>
@@ -863,9 +862,9 @@ onBeforeUnmount(() => {
     <!-- 远端音频始终挂载，避免投屏/单主视图把侧栏卸掉后听不见人 -->
     <div class="remote-audio" aria-hidden="true">
       <MediaTrack
-        v-for="p in remoteAudioParticipants"
-        :key="`audio-${p.identity}`"
-        :track="p.audioTrack"
+        v-for="item in remoteAudioTracks"
+        :key="item.key"
+        :track="item.track"
       />
     </div>
 
@@ -1069,7 +1068,7 @@ onBeforeUnmount(() => {
           </template>
           成员 ({{ participants.length }})
         </Button>
-        <Button @click="chatOpen = true">
+        <Button class="chat-btn" @click="chatOpen = true">
           <template #icon>
             <Badge :count="chatUnread" :offset="[5, -2]" size="small">
               <MessageOutlined />
@@ -1533,6 +1532,10 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 12px 16px;
   justify-content: center;
+}
+/* 聊天按钮的图标外包了一层 Badge，antd 的 `.ant-btn > .anticon + span` 间距规则失效，这里补上 */
+.chat-btn:deep(.anticon) {
+  margin-inline-end: 8px;
 }
 .device-field {
   display: flex;

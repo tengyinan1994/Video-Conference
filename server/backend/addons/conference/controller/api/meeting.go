@@ -49,8 +49,11 @@ func (c *cMeeting) List(ctx context.Context, req *meeting.ListReq) (res *meeting
 }
 
 func (c *cMeeting) Release(ctx context.Context, req *meeting.ReleaseReq) (res *meeting.ReleaseRes, err error) {
-	err = service.SysMeeting().Release(ctx, &req.MeetingReleaseInp)
-	res = new(meeting.ReleaseRes)
+	data, err := service.SysMeeting().Release(ctx, &req.MeetingReleaseInp)
+	if err != nil {
+		return
+	}
+	res = &meeting.ReleaseRes{MeetingReleaseModel: data}
 	return
 }
 

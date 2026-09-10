@@ -39,7 +39,7 @@ INSERT INTO `hg_admin_menu` (
   `component`, `always_show`, `active_menu`, `is_root`, `is_frame`, `frame_src`, `keep_alive`,
   `hidden`, `affix`, `level`, `tree`, `sort`, `remark`, `status`, `created_at`, `updated_at`
 ) VALUES (
-  @dirId, '会议列表', 'conferenceMeeting', 'meeting', '', 2, '', '/conference/meeting/list', '',
+  @dirId, '会议列表', 'conferenceMeeting', 'meeting', '', 2, '', '/conference/meeting/list,/conference/meetingType/option', '',
   '/addons/conference/meeting/index', 1, 'Conference', 0, 0, '', 1,
   0, 0, 2, CONCAT('tr_', @dirId, ' '), 10, '', 1, @now, @now
 );

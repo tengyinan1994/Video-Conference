@@ -3,7 +3,7 @@
 #
 # 用法：
 #   ./deploy/test/deploy.sh full
-#   ./deploy/test/deploy.sh update hotgo|client|admin|livekit
+#   ./deploy/test/deploy.sh update hotgo|client|admin|livekit|minutes-worker
 #   ./deploy/test/deploy.sh sync
 #   ./deploy/test/deploy.sh pull
 #   ./deploy/test/deploy.sh status
@@ -49,7 +49,7 @@ cmd_full() {
 
 cmd_update() {
   local svc="${1:-}"
-  [[ -z "$svc" ]] && { echo "请指定服务: hotgo|client|admin|livekit" >&2; exit 1; }
+  [[ -z "$svc" ]] && { echo "请指定服务: hotgo|client|admin|livekit|minutes-worker" >&2; exit 1; }
   compose_service_name "$svc"
   load_env
   require_config

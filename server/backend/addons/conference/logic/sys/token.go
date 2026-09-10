@@ -145,6 +145,15 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 			g.Log().Warningf(ctx, "conference auto-start recording failed meeting=%d err=%+v", meeting.Id, autoErr)
 		}
 	}
+	{
+		uid := int64(0)
+		if user != nil {
+			uid = user.Id
+		}
+		if aiErr := service.SysRecording().TryStartAiCapture(ctx, meeting, uid); aiErr != nil {
+			g.Log().Warningf(ctx, "conference auto-start AI capture failed meeting=%d err=%+v", meeting.Id, aiErr)
+		}
+	}
 
 	res = &sysin.TokenCreateModel{
 		ServerUrl:       cfg.Url,
@@ -156,7 +165,7 @@ func (s *sSysToken) Create(ctx context.Context, in *sysin.TokenCreateInp) (res *
 		ExpiresAt:       expiresAt,
 		IsHost:          isHost,
 		RecordEnabled:   meeting.RecordEnabled != 0,
-		RecordingActive: hasActiveRecording(ctx, meeting.Id),
+		RecordingActive: hasActiveRecording(ctx, meeting.Id, consts.RecordingPurposePlayback),
 		StartAt:         meeting.StartAt,
 		ActualStartAt:   meeting.StartedAt,
 	}

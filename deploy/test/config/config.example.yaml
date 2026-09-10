@@ -345,3 +345,10 @@ recording:
   # 生产若 egress 不在同网络则改公网可达地址。空则用内置 speaker 布局。
   customBaseUrl: "http://client:8080/egress"
   publicEndpoint: "http://125.211.217.19:17886"
+
+minutes:
+  enabled: true
+  workerUrl: "http://minutes-worker:8090"
+  callbackSecret: "dev-minutes-secret"
+  minTranscriptChars: 8
+

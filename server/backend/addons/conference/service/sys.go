@@ -25,16 +25,25 @@ type (
 		Stop(ctx context.Context, in *sysin.RecordingStopInp) (res *sysin.RecordingStopModel, err error)
 		Status(ctx context.Context, in *sysin.RecordingStatusInp) (res *sysin.RecordingStatusModel, err error)
 		TryAutoStart(ctx context.Context, meeting *entity.Meeting, startedBy int64) (err error)
+		TryStartAiCapture(ctx context.Context, meeting *entity.Meeting, startedBy int64) (err error)
 		StopAllForMeeting(ctx context.Context, meetingId int64, roomName string)
+		StopAllAiForMeeting(ctx context.Context, meetingId int64, roomName string)
 		HandleEgressWebhook(ctx context.Context, info *livekit.EgressInfo)
 		ListByMeetingIDs(ctx context.Context, meetingIDs []int64) (map[int64][]*sysin.RecordingSegmentModel, error)
 		OpenForDownload(ctx context.Context, id int64) (rc io.ReadCloser, filename string, size int64, err error)
 		OpenForPlay(ctx context.Context, id int64, rangeHeader string) (st *sysin.RecordingPlayStream, err error)
 	}
+	ISysMinutes interface {
+		View(ctx context.Context, in *sysin.MinutesViewInp) (res *sysin.MinutesModel, err error)
+		Regenerate(ctx context.Context, in *sysin.MinutesRegenerateInp) (res *sysin.MinutesModel, err error)
+		Callback(ctx context.Context, in *sysin.MinutesCallbackInp) (err error)
+		TryEnqueue(ctx context.Context, meetingId int64, force bool) (err error)
+		ListByMeetingIDs(ctx context.Context, meetingIDs []int64) (map[int64]*sysin.MinutesModel, error)
+	}
 	ISysMeeting interface {
 		Create(ctx context.Context, in *sysin.MeetingCreateInp) (res *sysin.MeetingItemModel, err error)
 		List(ctx context.Context, in *sysin.MeetingListInp) (list []*sysin.MeetingItemModel, err error)
-		Release(ctx context.Context, in *sysin.MeetingReleaseInp) (err error)
+		Release(ctx context.Context, in *sysin.MeetingReleaseInp) (res *sysin.MeetingReleaseModel, err error)
 		Delete(ctx context.Context, in *sysin.MeetingDeleteInp) (err error)
 		Update(ctx context.Context, in *sysin.MeetingUpdateInp) (res *sysin.MeetingItemModel, err error)
 		ShareView(ctx context.Context, in *sysin.MeetingShareViewInp) (res *sysin.MeetingShareViewModel, err error)
@@ -78,6 +87,7 @@ var (
 	localSysMeeting     ISysMeeting
 	localSysAuth        ISysAuth
 	localSysRecording   ISysRecording
+	localSysMinutes     ISysMinutes
 	localSysMeetingType ISysMeetingType
 )
 
@@ -134,6 +144,17 @@ func SysRecording() ISysRecording {
 
 func RegisterSysRecording(i ISysRecording) {
 	localSysRecording = i
+}
+
+func SysMinutes() ISysMinutes {
+	if localSysMinutes == nil {
+		panic("implement not found for interface ISysMinutes, forgot register?")
+	}
+	return localSysMinutes
+}
+
+func RegisterSysMinutes(i ISysMinutes) {
+	localSysMinutes = i
 }
 
 func SysMeetingType() ISysMeetingType {

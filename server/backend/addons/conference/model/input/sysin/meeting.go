@@ -82,6 +82,7 @@ type MeetingItemModel struct {
 	TypeId        int64                    `json:"typeId" dc:"会议类型ID，0=未分类"`
 	TypeName      string                   `json:"typeName" dc:"会议类型名称，未分类为空"`
 	Recordings    []*RecordingSegmentModel `json:"recordings" dc:"录制分段（含回放地址）"`
+	Minutes       *MinutesModel            `json:"minutes,omitempty" dc:"会后AI纪要摘要"`
 }
 
 // MeetingReleaseInp 结束会议室（保留记录，计入历史）
@@ -94,6 +95,11 @@ func (in *MeetingReleaseInp) Filter(ctx context.Context) (err error) {
 		return gerror.New("会议ID不能为空")
 	}
 	return
+}
+
+// MeetingReleaseModel 结束会议后的纪要提示（音源是否足够生成纪要）
+type MeetingReleaseModel struct {
+	Minutes *MinutesModel `json:"minutes,omitempty" dc:"结束时的纪要状态，供前端立刻提示"`
 }
 
 // MeetingDeleteInp 删除会议室（硬删，建错重建场景）

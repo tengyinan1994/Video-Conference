@@ -29,7 +29,9 @@ type ReleaseReq struct {
 	sysin.MeetingReleaseInp
 }
 
-type ReleaseRes struct{}
+type ReleaseRes struct {
+	*sysin.MeetingReleaseModel
+}
 
 type DeleteReq struct {
 	g.Meta `path:"/meeting/delete" method:"post" tags:"视频会议会议室" summary:"删除会议室（硬删）"`
