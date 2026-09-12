@@ -1564,7 +1564,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 20px;
-  align-content: center;
+  /* safe：人多到超出一屏时退化为顶对齐，否则 align-content:center 会把第一行推到
+     滚动区之上（scrollTop 不能为负，滚不回来），首页成员永远看不全 */
+  align-content: safe center;
   justify-content: center;
   overflow-y: auto;
   padding: 24px 12px;
