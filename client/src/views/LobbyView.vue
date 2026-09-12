@@ -562,6 +562,21 @@ function isProcessingSeg(seg: RecordingSegment) {
   return ['starting', 'active', 'stopping'].includes(seg.status)
 }
 
+/** 卡片上的进行态/异常提示：录制优先于纪要，均无异常时返回空串 */
+function endedCardHint(m: MeetingItem) {
+  const segs = recordingsOf(m)
+  if (segs.some(isProcessingSeg)) return '录制处理中'
+  if (segs.some((seg) => seg.status === 'failed' || (seg.status === 'complete' && !canPlaySeg(seg)))) {
+    return '录制异常'
+  }
+  const status = minutesOf(m)?.status
+  if (status === 'failed') return '纪要生成失败'
+  if (status === 'pending' || status === 'transcribing' || status === 'summarizing') {
+    return '纪要编写中'
+  }
+  return ''
+}
+
 const playSrc = computed(() => {
   if (!playSeg.value || !canPlaySeg(playSeg.value)) return ''
   return recordingPlaySrc(playSeg.value.id)
@@ -1384,29 +1399,6 @@ onUnmounted(() => {
                   {{ attendeesPreview(m) }}
                 </span>
               </div>
-              <div v-if="isEnded(m) && recordingsOf(m).length" class="card-meta card-meta-recordings">
-                <span class="meta-item meta-recordings">
-                  <span class="meta-label">录制</span>
-                  <span class="recording-list">
-                    <span v-for="seg in recordingsOf(m)" :key="seg.id" class="recording-item">
-                      第{{ seg.seq }}段
-                      <template v-if="canPlaySeg(seg)">
-                        <button type="button" class="recording-link" @click="openDetail(m, seg)">回放</button>
-                        <button type="button" class="recording-link" @click="downloadSeg(m, seg)">下载</button>
-                      </template>
-                      <span v-else class="recording-status">{{ recordingStatusText(seg) }}</span>
-                    </span>
-                  </span>
-                </span>
-              </div>
-              <div v-if="isEnded(m)" class="card-meta card-meta-minutes">
-                <span class="meta-item">
-                  <span class="meta-label">纪要</span>
-                  <button type="button" class="recording-link" @click="openDetail(m)">
-                    {{ minutesStatusText(minutesOf(m)?.status) }}
-                  </button>
-                </span>
-              </div>
 
               <div v-if="isOngoing(m) && progressInfo(m)" class="progress-block">
                 <div class="progress-track">
@@ -1449,6 +1441,10 @@ onUnmounted(() => {
               >
                 删除
               </Button>
+            </div>
+            <div v-else class="card-actions card-actions-ended">
+              <span v-if="endedCardHint(m)" class="ended-hint">{{ endedCardHint(m) }}</span>
+              <Button class="btn-detail" @click="openDetail(m)">详情</Button>
             </div>
           </article>
         </div>
@@ -1656,7 +1652,6 @@ onUnmounted(() => {
             class="play-video"
             :src="playSrc"
             controls
-            autoplay
             playsinline
             preload="metadata"
             @error="onPlayError"
@@ -1667,18 +1662,12 @@ onUnmounted(() => {
           录制文件处理中，就绪后将自动可播
         </p>
 
-        <div class="detail-minutes">
+        <div v-if="!isMinutesNoAudio(detailMinutes?.status)" class="detail-minutes">
           <div class="detail-segs-title">
             会议纪要
             <span class="detail-minutes-status">{{ minutesStatusText(detailMinutes?.status) }}</span>
           </div>
           <p v-if="minutesLoading && !detailMinutes" class="detail-play-hint">纪要加载中…</p>
-          <p v-else-if="detailMinutes?.status === 'unavailable'" class="detail-play-hint">
-            该会议没有音频，无法生成会议纪要。
-          </p>
-          <p v-else-if="detailMinutes?.status === 'skipped_empty'" class="detail-play-hint">
-            该会议没有音频，无法生成会议纪要。
-          </p>
           <p v-else-if="detailMinutes?.status === 'failed'" class="detail-play-hint">
             生成失败：{{ detailMinutes.errorMsg || '未知错误' }}
           </p>
@@ -2593,7 +2582,7 @@ html[data-theme='dark'] .meeting-card.live {
   box-shadow: none;
 }
 
-.meeting-card.ended {
+.meeting-card.ended .card-main {
   opacity: 0.78;
 }
 
@@ -2711,27 +2700,10 @@ html[data-theme='dark'] .pill-host {
   margin-top: 8px;
 }
 
-.card-meta-recordings {
-  margin-top: 6px;
-}
-
-.meta-attendees,
-.meta-recordings {
+.meta-attendees {
   min-width: 0;
   align-items: flex-start;
   line-height: 1.45;
-}
-
-.recording-list {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-}
-
-.recording-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .recording-link {
@@ -2914,6 +2886,28 @@ html[data-theme='dark'] .progress-track {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.card-actions-ended {
+  gap: 10px;
+}
+
+.ended-hint {
+  font-size: 12px;
+  color: var(--ink-35);
+}
+
+.btn-detail {
+  border-radius: 10px !important;
+  border-color: var(--line) !important;
+  background: transparent !important;
+  color: var(--ink-60) !important;
+  box-shadow: none !important;
+}
+.btn-detail:hover {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--line)) !important;
+  background: color-mix(in srgb, var(--brand) 12%, transparent) !important;
+  color: var(--brand-strong) !important;
 }
 
 .empty-wrap {
@@ -3365,11 +3359,5 @@ html[data-theme='dark'] .minutes-settle-sub {
 }
 .detail-minutes-actions {
   margin-top: 8px;
-}
-.card-meta-minutes {
-  margin-top: 10px;
-}
-.card-meta-minutes .recording-link {
-  margin-left: 4px;
 }
 </style>
