@@ -15,6 +15,8 @@ import {
   type RemoteTrack,
   type RemoteTrackPublication,
 } from 'livekit-client'
+import { isTauri } from '@/utils/platform'
+import { resolveLiveKitUrlFromEnv } from './resolveLiveKitUrl'
 
 export type ConnectionStatus =
   | 'idle'
@@ -266,16 +268,14 @@ export function parseRoleHost(metadata: string | undefined): boolean {
   }
 }
 
-/** LiveKit 信令地址：https 页必须同源 wss（nginx/Vite 反代 /rtc），避免混合内容被拦 */
+/** LiveKit 信令地址：Tauri 用 token.serverUrl；浏览器 https 页走同源 wss（nginx/Vite 反代 /rtc） */
 export function resolveLiveKitUrl(serverUrl: string): string {
-  if (typeof location === 'undefined') {
-    return serverUrl
-  }
-  if (import.meta.env.DEV || location.protocol === 'https:') {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${proto}//${location.host}`
-  }
-  return serverUrl
+  return resolveLiveKitUrlFromEnv(serverUrl, {
+    isTauri: isTauri(),
+    protocol: typeof location !== 'undefined' ? location.protocol : undefined,
+    host: typeof location !== 'undefined' ? location.host : undefined,
+    isDev: import.meta.env.DEV,
+  })
 }
 
 

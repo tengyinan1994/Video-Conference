@@ -27,9 +27,9 @@ pnpm tauri:dev
 
 VS Code / Cursor：`Client (Vite)` 或 `Client (Tauri)`；复合启动可用「仅开会（Tauri 壳）」。
 
-**安装包**：业务地址写死在 `client/.env.production`（当前 `http://127.0.0.1:8000`，即 HotGo）。换地址时改该文件后重新 `pnpm tauri:build`。局域网开会时 HotGo 的 `livekit.url` 和 LiveKit `node_ip` 要用对端能访问的地址，不要用 `127.0.0.1`。
+**安装包**：生产 API 写在 `client/.env.production`（`VITE_API_BASE_URL=https://125.211.217.19:17885`）。换地址时改该文件后重新 `pnpm tauri:build`。局域网开会时 HotGo 的 `livekit.url` 和 LiveKit `node_ip` 要用对端能访问的地址，不要用 `127.0.0.1`。
 
-`:8000` = HotGo（发 Token / 踢人 / 全员静音）；`:7880` = LiveKit 媒体。
+`:8000` = 本机开发 HotGo（发 Token / 踢人 / 全员静音）；`:7880` = 本机 LiveKit 媒体。
 
 ## 目录
 
@@ -41,10 +41,24 @@ VS Code / Cursor：`Client (Vite)` 或 `Client (Tauri)`；复合启动可用「�
 - `src/composables/useLiveKitRoom.ts`：唯一持有 LiveKit `Room`
 - `src/api/conference.ts`：调用 `POST /api/conference/token/create`
 
-## 打包桌面端
+## 打包桌面端（Windows NSIS）
+
+当前只打 **Windows NSIS `setup.exe`**（`src-tauri/tauri.conf.json` 的 `bundle.targets` = `nsis`）。**真正产出安装包需要一台 Windows 机器**；在 macOS / Linux 上跑 `pnpm tauri:build` 不会生成 NSIS。
+
+生产 API 由 Vite 在 `pnpm build` 时读入 `client/.env.production`（`VITE_API_BASE_URL=https://125.211.217.19:17885`）。仓库里同时有同内容的 `.env.production.example`。换地址后重新打包即可。
 
 ```bash
+# 在 Windows 上
+cd client
+pnpm install
 pnpm tauri:build
 ```
 
-产物在 `src-tauri/target/release/bundle/`（macOS `.dmg` / `.app` 等）。
+产物在 `src-tauri/target/release/bundle/nsis/`（`*setup.exe`）。安装后冒烟：登录 → 大厅 → 加入会议 → 音视频（打到生产 HotGo）。
+
+LiveKit 信令解析单测（不依赖 Windows）：
+
+```bash
+cd client
+pnpm test
+```
