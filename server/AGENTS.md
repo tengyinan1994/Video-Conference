@@ -737,6 +737,11 @@ g.Log().Panicf(ctx, "缓存未初始化，无法启动: %+v", err)
 
 ## 数据库建表约定
 
+> ⚠️ **生产环境提醒**：`deploy/prod/` 已是**生产**（dept，已上线）。表结构变更不会自动生效 ——
+> `init/*.sql` 仅在 MySQL 数据目录为空时执行。生产改表必须：写增量 SQL → 备份 →
+> 手工执行 → 再 `update hotgo`。禁止在生产执行 `deploy.sh full` / `down`。
+> 详见仓库根 [`AGENTS.md`](../AGENTS.md) 文首。
+
 建表时遵循以下字段命名约定，代码生成器和 ORM hook 会自动识别并处理：
 
 | 字段名 | 类型 | 说明 |
