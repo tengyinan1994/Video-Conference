@@ -68,9 +68,8 @@ services:
     command: ["/data"]
     volumes:
       - ${DATA_DIR}/rustfs:/data
-    ports:
-      - "${RUSTFS_PORT:-17886}:9000"
-      - "${RUSTFS_CONSOLE_PORT:-17887}:9001"
+    # 不对宿主机暴露任何端口：RustFS 仅在 vc_net 内网可达（http://rustfs:9000）。
+    # 回放/下载由 HotGo 的 /recording/play|download 代理转发，Egress / minutes-worker 亦走内网。
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9000/health || exit 1"]
       interval: 5s

@@ -337,14 +337,16 @@ recording:
   # height: 1440
   # framerate: 60
   # videoBitrate: 12000
-  # 管理后台回放/下载直链用（浏览器可达）。必须填公网/宿主机映射口，不能是 rustfs 容器名。
-  # 客户端默认走 HotGo /recording/play 代理，可不依赖此项；后台列表依赖此项。
-  # 与 .env 中 PUBLIC_HOST + RUSTFS_PORT 对齐，例如 http://125.211.217.19:17886
+  # 回放/下载统一走 HotGo 同源 HTTPS 代理：
+  #   管理后台 /admin/conference/recording/play|download
+  #   会议端   /api/conference/recording/play|download
+  # HotGo 在 vc_net 内网直连 http://rustfs:9000 取文件，RustFS 不对宿主机暴露端口。
+  # publicEndpoint 仅供「浏览器直链」场景使用，当前前端未消费该字段，故留空。
   # Egress 自定义布局页面（客户端 /egress 路由）。egress 与 client 同在 vc_net；
   # client 开有内网 HTTP 端口 8080 专供录制模板（80 会 301 到自签 HTTPS，headless Chrome 拒载）。
   # 生产若 egress 不在同网络则改公网可达地址。空则用内置 speaker 布局。
   customBaseUrl: "http://client:8080/egress"
-  publicEndpoint: "http://125.211.217.19:17886"
+  publicEndpoint: ""
 
 minutes:
   enabled: true

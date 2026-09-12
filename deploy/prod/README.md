@@ -80,16 +80,16 @@ cp deploy/prod/config/config.example.yaml deploy/prod/config/config.yaml
 | 17888 | 会议 HTTP → 301 HTTPS |
 | 17880 | LiveKit 信令 WS |
 | 17881/17882 | WebRTC（UDP 17882 必放行） |
-| 17886/17887 | RustFS（管理后台回放直链依赖 17886；可按安全策略加防火墙） |
 
-MySQL / Redis **不映射**宿主机，仅 compose 内网访问。
+MySQL / Redis / HotGo / minutes-worker / Egress / **RustFS 均不映射宿主机**，仅 compose 内网（`vc_net`）访问。
 
 ## 录制回放
 
 - `recording.s3.endpoint`：HotGo 容器内访问 RustFS（`http://rustfs:9000`）
 - 会议客户端和管理后台回放/下载都走 HotGo HTTPS 代理，浏览器不直连 RustFS
 - 管理后台：`/admin/conference/recording/play|download`；会议客户端：`/api/conference/recording/play|download`
-- `recording.publicEndpoint` 仅作备用直链；可留空。若仍暴露 17886，HTTPS 后台点 HTTP 直链会被 Edge/Chrome 报「无法安全下载」
+- RustFS 的 S3 API（9000）与控制台（9001）**不对宿主机暴露端口**，Egress / minutes-worker / HotGo 全部走 `vc_net` 内网
+- `recording.publicEndpoint` 保持为空：它只用于生成浏览器直链，当前前端未消费该字段；若将来需要直链，应给 RustFS 配域名 + TLS，而不是裸露 S3 端口
 
 ## 验收
 
