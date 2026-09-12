@@ -95,6 +95,7 @@ const {
   speakerSupported,
   connect,
   disconnect,
+  markTerminal,
   toggleMic,
   toggleCamera,
   toggleScreenShare,
@@ -845,17 +846,107 @@ watch(chatOpen, (open) => {
   if (open) chatUnread.value = 0
 })
 
+// —— 会议室被结束 / 成员被移出：自动关闭会议界面 ——
+// 主持人结束或删除会议会移除 LiveKit 房间，成员端收到 ROOM_DELETED / ROOM_CLOSED（被踢为
+// PARTICIPANT_REMOVED）。此时会议室已不可用，若只弹一条提示，成员仍能点「屏幕共享」等按钮
+// 继续操作（房间已销毁，操作只会得到报错或本地假状态）。故这里：
+//   1) 终态锁定后立即断开并停止本地投屏/摄像头采集（共享指示灯熄灭，杜绝「还能操作」）；
+//   2) 用阻断式弹窗说明原因，倒计时自动返回大厅（游客回入会页）。
+const TERMINAL_EXIT_SECONDS = 5
+const terminalOpen = ref(false)
+const exitCountdown = ref(TERMINAL_EXIT_SECONDS)
+let terminalExitTimer: ReturnType<typeof setInterval> | null = null
+/** 会议状态兜底轮询：LiveKit 删房事件在弱网/重连时可能丢失，用它确保「已结束/已删除」一定被发现 */
+let meetingStatusPollTimer: ReturnType<typeof setInterval> | null = null
+
+const terminalNotice = computed(() =>
+  status.value === 'kicked'
+    ? { title: '你已被移出会议', content: '主持人已将你移出本次会议，你已自动退出会议室。' }
+    : { title: '会议已结束', content: '主持人已结束或删除了本次会议，会议室已关闭，你已自动退出。' },
+)
+
+function stopTerminalExit() {
+  if (terminalExitTimer) {
+    clearInterval(terminalExitTimer)
+    terminalExitTimer = null
+  }
+}
+
+/** 关掉会议界面，回到大厅；游客回入会页 */
+async function closeRoomAndReturn() {
+  stopTerminalExit()
+  terminalOpen.value = false
+  await leave()
+}
+
+function startTerminalExit() {
+  // 立即断开：停止本地投屏/摄像头/麦克风采集，避免弹窗期间仍能操作失效的会议室
+  void disconnect()
+  stopMeetingStatusPoll()
+  if (terminalOpen.value) return
+  terminalOpen.value = true
+  exitCountdown.value = TERMINAL_EXIT_SECONDS
+  stopTerminalExit()
+  terminalExitTimer = setInterval(() => {
+    exitCountdown.value -= 1
+    if (exitCountdown.value <= 0) void closeRoomAndReturn()
+  }, 1000)
+}
+
+// —— 会议状态兜底轮询 ——
+// 主持人「结束会议」会等 Egress 收尾后才删房（最长 20s），期间成员仍连着已失效的房间；
+// 主持人直接「删除会议」虽然会立即删房，但弱网/重连时删房事件也可能丢。定期查一次分享
+// 详情：状态变为已结束，或接口提示会议不存在，即按「会议已结束」自动清场。
+async function checkMeetingAlive() {
+  const s = session.value
+  if (!s || status.value !== 'connected') return
+  if (!s.shareCode) return
+  try {
+    const info = await shareView(s.shareCode)
+    if (status.value !== 'connected') return
+    if (info.status === 'ended' || info.status === 'released') {
+      await markTerminal('ended')
+    }
+  } catch (err) {
+    if (status.value !== 'connected') return
+    // 仅把「会议不存在/链接无效」这类业务错误视为已删除；网络异常（code<0）与鉴权错误忽略，避免误踢
+    if (
+      err instanceof ApiError &&
+      err.code > 0 &&
+      err.code !== 401 &&
+      err.code !== 61 &&
+      /不存在|无效/.test(err.message)
+    ) {
+      await markTerminal('ended')
+    }
+  }
+}
+
+function startMeetingStatusPoll() {
+  stopMeetingStatusPoll()
+  meetingStatusPollTimer = setInterval(() => {
+    void checkMeetingAlive()
+  }, 5000)
+}
+
+function stopMeetingStatusPoll() {
+  if (meetingStatusPollTimer) {
+    clearInterval(meetingStatusPollTimer)
+    meetingStatusPollTimer = null
+  }
+}
+
 watch(status, (s) => {
   if (s === 'connected') {
     startMeetingTimer()
+    startMeetingStatusPoll()
     return
   }
-  if (s === 'kicked') {
+  if (s === 'ended' || s === 'kicked') {
     stopMeetingTimer()
-    message.warning('你已被主持人移出会议')
-  } else if (s === 'ended') {
-    stopMeetingTimer()
-    message.warning('会议已结束')
+    stopRecordingPoll()
+    stopMeetingStatusPoll()
+    startTerminalExit()
   }
 })
 
@@ -885,6 +976,8 @@ onBeforeUnmount(() => {
   stopRecordingPoll()
   stopMeetingTimer()
   stopRecordingTimer()
+  stopTerminalExit()
+  stopMeetingStatusPoll()
   document.removeEventListener('fullscreenchange', syncMainFullscreen)
   if (document.fullscreenElement === mainStageEl.value) {
     void document.exitFullscreen().catch(() => undefined)
@@ -893,7 +986,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="room">
+  <div class="room" :class="{ terminal: isTerminal }">
     <header class="top">
       <div class="top-left">
         <strong>{{ session?.title || `房间 ${route.params.room}` }}</strong>
@@ -918,17 +1011,16 @@ onBeforeUnmount(() => {
     </header>
 
     <Alert
-      v-if="errorMessage"
+      v-if="errorMessage && !isTerminal"
       type="error"
       show-icon
       :message="errorMessage"
       class="banner"
     >
       <template #action>
-        <Button v-if="!isTerminal" size="small" type="primary" :loading="joining" @click="retryEnter">
+        <Button size="small" type="primary" :loading="joining" @click="retryEnter">
           重新连接
         </Button>
-        <Button v-else size="small" type="primary" @click="leave">离开会议</Button>
       </template>
     </Alert>
     <Alert
@@ -1341,6 +1433,22 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </Modal>
+
+    <!-- 会议被结束/被移出：阻断式提示 + 倒计时自动返回，避免停在已失效的会议室里继续操作 -->
+    <Modal
+      :open="terminalOpen"
+      :title="terminalNotice.title"
+      :closable="false"
+      :mask-closable="false"
+      :keyboard="false"
+      :footer="null"
+      centered
+      wrap-class-name="room-terminal-modal"
+    >
+      <p class="terminal-text">{{ terminalNotice.content }}</p>
+      <p class="terminal-countdown">{{ exitCountdown }} 秒后自动返回</p>
+      <Button type="primary" block @click="closeRoomAndReturn">立即返回</Button>
+    </Modal>
   </div>
 </template>
 
@@ -1405,6 +1513,20 @@ onBeforeUnmount(() => {
 .banner {
   flex-shrink: 0;
   margin: 12px 16px 0;
+}
+/* 终态（会议已结束/被移出）后会议室已销毁：禁用画面区与工具栏，避免继续点屏幕共享等按钮 */
+.room.terminal .stage,
+.room.terminal .controls {
+  pointer-events: none;
+}
+.terminal-text {
+  margin: 0 0 8px;
+  color: var(--vc-ink);
+}
+.terminal-countdown {
+  margin: 0 0 16px;
+  color: var(--vc-muted);
+  font-size: 13px;
 }
 .remote-audio {
   /* 视觉隐藏即可；勿用 display:none / 0x0，部分浏览器会停播 audio */

@@ -328,6 +328,12 @@ export function useLiveKitRoom() {
   const qualityMap = new Map<string, QualityLevel>()
   /** 是否已为枚举设备申请过媒体权限（默认关麦关摄像头时也要申请一次） */
   let devicePermissionWarmed = false
+  /**
+   * 终态原因（会议已结束 / 被移出）。一旦锁定就不再被后续
+   * Disconnected / disconnect() 的收尾逻辑覆盖成 idle/disconnected，
+   * 否则「会议已结束」的界面会被重置回可操作状态。
+   */
+  let terminalReason: 'ended' | 'kicked' | null = null
 
   const isConnected = computed(() => status.value === 'connected')
 
@@ -619,15 +625,18 @@ export function useLiveKitRoom() {
       },
     )
     r.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
+      // 已锁定终态（如轮询先行判定会议已结束）时忽略后到的断开原因，避免覆盖提示
+      if (terminalReason) {
+        refresh()
+        return
+      }
       if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
-        status.value = 'kicked'
-        errorMessage.value = '你已被主持人移出会议'
+        void markTerminal('kicked')
       } else if (
         reason === DisconnectReason.ROOM_DELETED ||
         reason === DisconnectReason.ROOM_CLOSED
       ) {
-        status.value = 'ended'
-        errorMessage.value = '会议已结束'
+        void markTerminal('ended')
       } else if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
         status.value = 'disconnected'
         errorMessage.value = '相同账号已在其他设备进入会议，当前连接已断开'
@@ -762,6 +771,7 @@ export function useLiveKitRoom() {
     opts?: { enableMic?: boolean; enableCamera?: boolean },
   ) {
     await disconnect()
+    terminalReason = null
     status.value = 'connecting'
     errorMessage.value = ''
     qualityMap.clear()
@@ -820,15 +830,31 @@ export function useLiveKitRoom() {
     standbyIdentity.value = null
     qualityMap.clear()
     if (current) {
+      // stopTracks=true：立即停止本地投屏/摄像头/麦克风采集，浏览器共享指示灯随之熄灭
       try {
         await current.disconnect(true)
       } catch {
         // ignore
       }
     }
-    if (status.value !== 'error') {
+    // 终态（会议已结束/被移出）不可被收尾逻辑重置，否则界面会回到可继续操作的状态
+    if (!terminalReason && status.value !== 'error') {
       status.value = 'idle'
     }
+  }
+
+  /**
+   * 锁定「会议已结束 / 被移出」终态并立即断开连接。
+   * LiveKit 的 ROOM_DELETED/PARTICIPANT_REMOVED 事件，以及客户端的会议状态轮询兜底，
+   * 都走这里，保证媒体采集被立刻释放、状态不会被后续 disconnect() 覆盖。
+   */
+  async function markTerminal(reason: 'ended' | 'kicked') {
+    if (terminalReason) return
+    terminalReason = reason
+    status.value = reason
+    errorMessage.value = reason === 'kicked' ? '你已被主持人移出会议' : '会议已结束'
+    await disconnect()
+    status.value = reason
   }
 
   async function toggleMic() {
@@ -1014,6 +1040,7 @@ export function useLiveKitRoom() {
     speakerSupported,
     connect,
     disconnect,
+    markTerminal,
     toggleMic,
     toggleCamera,
     toggleScreenShare,
