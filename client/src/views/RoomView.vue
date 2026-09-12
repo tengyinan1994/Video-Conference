@@ -521,7 +521,12 @@ async function retryEnter() {
 async function leaveToEntry(payload?: SessionPayload | null) {
   const s = payload ?? session.value
   if (s?.fromShare && s.shareCode) {
-    await router.replace({ name: 'join', params: { shareCode: s.shareCode } })
+    await router.replace({
+      name: 'join',
+      params: { shareCode: s.shareCode },
+      // 从同事链接进来的，退回入会页时保留同事语义，避免又变成游客入会页
+      query: s.inviteKind === 'member' ? { as: 'member' } : {},
+    })
     return
   }
   if (isLoggedIn()) {
@@ -540,10 +545,12 @@ async function leave() {
   await leaveToEntry(s)
 }
 
-function shareLink() {
+/** 邀请链接：游客与同事是两条不同的链接，同事链接带 ?as=member（未登录需先登录） */
+function shareLink(kind: InviteKind = 'guest') {
   const code = session.value?.shareCode
   if (!code) return ''
-  return `${window.location.origin}/join/${code}`
+  const base = `${window.location.origin}/join/${code}`
+  return kind === 'member' ? `${base}?as=member` : base
 }
 
 async function openInvite() {
@@ -580,7 +587,7 @@ function buildInviteText(kind: InviteKind) {
     `主持人：${hostName}`,
     `时间：${inviteTimeText.value}`,
     `加入方式：${how}`,
-    `会议链接：${shareLink()}`,
+    `会议链接：${shareLink(kind)}`,
   ].join('\n')
 }
 

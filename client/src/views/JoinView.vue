@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button, Form, Input, Switch, message } from 'ant-design-vue'
 import { UserOutlined } from '@ant-design/icons-vue'
@@ -7,7 +7,7 @@ import dayjs from 'dayjs'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { fetchMe } from '@/api/auth'
 import { createToken, shareView, type MeetingShareView } from '@/api/conference'
-import { displayName, getAuth, isLoggedIn, setAuth } from '@/stores/auth'
+import { displayName, getAuth, isLoggedIn, setAuth, subscribeAuth } from '@/stores/auth'
 import { ApiError } from '@/utils/request'
 import { writeMeetingSession } from '@/utils/meetingSession'
 import loginBg from '@/assets/images/login-bg.png'
@@ -21,7 +21,19 @@ const info = ref<MeetingShareView | null>(null)
 const infoError = ref('')
 
 const shareCode = computed(() => String(route.params.shareCode || ''))
-const loggedIn = computed(() => isLoggedIn())
+/**
+ * 登录态必须响应式：同事链接在入会页停留期间登录态失效（token 过期被 401 清除）时，
+ * 要立刻回到登录页；否则 createToken 会退化成游客发 token，等于绕过同事邀请的登录要求。
+ */
+const loggedIn = ref(isLoggedIn())
+/**
+ * 邀请链接分两种：
+ * - 游客邀请 `/join/{code}`：未登录可直接填昵称入会；
+ * - 同事邀请 `/join/{code}?as=member`：必须用公司账号登录，未登录先跳登录页。
+ */
+const asMember = computed(() => route.query.as === 'member')
+/** 同事邀请但未登录：拦截在游客表单之前，先去登录 */
+const needLogin = computed(() => asMember.value && !loggedIn.value)
 
 const form = reactive({
   nickname: '',
@@ -85,8 +97,10 @@ async function loadInfo() {
 }
 
 async function onJoin() {
-  if (!form.nickname.trim()) {
-    message.warning('请填写昵称')
+  // 同事邀请固定使用账号身份（真实姓名），不允许改昵称冒充他人
+  const nickname = (asMember.value ? displayName() : form.nickname).trim()
+  if (!nickname) {
+    message.warning(asMember.value ? '账号信息异常，请重新登录' : '请填写昵称')
     return
   }
   if (!info.value?.canJoin) {
@@ -97,7 +111,7 @@ async function onJoin() {
   try {
     const data = await createToken({
       shareCode: shareCode.value,
-      nickname: form.nickname.trim(),
+      nickname,
     })
     writeMeetingSession({
       serverUrl: data.serverUrl,
@@ -112,6 +126,7 @@ async function onJoin() {
       enableCamera: form.enableCamera,
       fromShare: true,
       shareCode: shareCode.value,
+      inviteKind: asMember.value ? 'member' : 'guest',
       recordEnabled: !!data.recordEnabled,
       recordingActive: !!data.recordingActive,
       startAt: data.startAt || info.value?.startAt,
@@ -126,15 +141,39 @@ async function onJoin() {
   }
 }
 
+/** 当前邀请语义下的入会地址，登录后要原样回到这里（同事链接的 ?as=member 不能丢） */
+function joinPath() {
+  return asMember.value ? `/join/${shareCode.value}?as=member` : `/join/${shareCode.value}`
+}
+
 function goLogin() {
   void router.push({
     name: 'login',
-    query: { redirect: `/join/${shareCode.value}` },
+    query: { redirect: joinPath() },
   })
 }
 
+let unsubscribeAuth: (() => void) | null = null
+
 onMounted(() => {
+  unsubscribeAuth = subscribeAuth(() => {
+    loggedIn.value = isLoggedIn()
+  })
+  if (needLogin.value) {
+    goLogin()
+    return
+  }
   void loadInfo()
+})
+
+onBeforeUnmount(() => {
+  unsubscribeAuth?.()
+  unsubscribeAuth = null
+})
+
+// 同事邀请：一旦变成未登录状态（含登录态中途失效），立即拦回登录页
+watch(needLogin, (need) => {
+  if (need) goLogin()
 })
 </script>
 
@@ -154,13 +193,20 @@ onMounted(() => {
           <span class="brand-kicker">Video Conference</span>
         </div>
         <h1 class="brand-title">加入会议</h1>
-        <p class="brand-desc">打开分享链接即可入会。游客填写昵称，已有账号也可直接进入。</p>
+        <p class="brand-desc">
+          {{
+            asMember
+              ? '同事邀请：请使用公司账号登录后，通过本链接进入会议。'
+              : '打开分享链接即可入会。游客填写昵称，已有账号也可直接进入。'
+          }}
+        </p>
       </section>
 
       <section class="join-panel">
         <div class="panel-glow" aria-hidden="true" />
 
-        <div v-if="infoError" class="state-box state-error">{{ infoError }}</div>
+        <div v-if="needLogin" class="state-box">同事邀请需登录后进入，正在跳转登录…</div>
+        <div v-else-if="infoError" class="state-box state-error">{{ infoError }}</div>
         <div v-else-if="loadingInfo" class="state-box">加载会议信息…</div>
 
         <template v-else-if="info">
@@ -177,7 +223,13 @@ onMounted(() => {
           </header>
 
           <Form class="join-form" :model="form" layout="vertical" @finish="onJoin">
+            <div v-if="asMember" class="member-identity">
+              <span class="identity-label">登录账号</span>
+              <span class="identity-name">{{ displayName() || '—' }}</span>
+            </div>
+
             <Form.Item
+              v-else
               label="昵称"
               name="nickname"
               required
@@ -221,11 +273,12 @@ onMounted(() => {
               :loading="loading"
               :disabled="!info.canJoin"
             >
-              进入会议
+              {{ asMember ? `以 ${displayName()} 身份进入会议` : '进入会议' }}
             </Button>
           </Form>
 
-          <p v-if="loggedIn" class="hint">已登录为 {{ displayName() }}，可直接进会。</p>
+          <p v-if="asMember" class="hint">已使用公司账号登录，进入会议后显示为 {{ displayName() }}。</p>
+          <p v-else-if="loggedIn" class="hint">已登录为 {{ displayName() }}，可直接进会。</p>
           <p v-else class="hint">
             游客可填昵称进会。
             <button type="button" class="link-btn" @click="goLogin">用账号登录</button>
@@ -485,6 +538,32 @@ onMounted(() => {
 
 .join-form :deep(.ant-input-clear-icon) {
   color: rgba(226, 232, 240, 0.72) !important;
+}
+
+.member-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.identity-label {
+  color: var(--login-ink-mute);
+  font-size: 13px;
+}
+
+.identity-name {
+  color: var(--login-ink);
+  font-size: 15px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .media-opts {

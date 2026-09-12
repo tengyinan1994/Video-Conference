@@ -19,6 +19,8 @@ export interface MeetingSession {
   enableCamera?: boolean
   fromShare?: boolean
   shareCode?: string
+  /** 从哪种邀请链接进入：游客链接（默认）或同事链接（?as=member），退出会议时按原样返回入会页 */
+  inviteKind?: 'guest' | 'member'
   recordEnabled?: boolean
   recordingActive?: boolean
   /** 会议预定开始时间；房间「已进行」时长以此累计，与是否重新进房无关 */

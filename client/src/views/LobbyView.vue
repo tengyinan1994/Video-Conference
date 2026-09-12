@@ -324,8 +324,13 @@ async function ensureMe() {
   }
 }
 
-function shareLink(m: MeetingItem) {
-  return `${window.location.origin}/join/${m.shareCode}`
+/**
+ * 邀请链接：游客与同事是两条不同的链接。
+ * 同事链接带 ?as=member，未登录时入会页会强制先登录，不再落到游客入会表单。
+ */
+function shareLink(m: MeetingItem, kind: InviteKind = 'guest') {
+  const base = `${window.location.origin}/join/${m.shareCode}`
+  return kind === 'member' ? `${base}?as=member` : base
 }
 
 function openInvite(m: MeetingItem) {
@@ -724,7 +729,7 @@ function buildInviteText(m: MeetingItem, kind: InviteKind) {
     `主持人：${m.hostName || '-'}`,
     `时间：${formatInviteTimeText(m)}`,
     `加入方式：${how}`,
-    `会议链接：${shareLink(m)}`,
+    `会议链接：${shareLink(m, kind)}`,
   ].join('\n')
 }
 
