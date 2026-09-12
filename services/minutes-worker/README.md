@@ -7,7 +7,7 @@
 #   export ASR_BACKEND=mock
 #   export OPENAI_API_KEY=sk-...
 #   export OPENAI_BASE_URL=https://api.deepseek.com/v1
-#   export OPENAI_MODEL=deepseek-chat
+#   export OPENAI_MODEL=deepseek-flash
 #   export HOTGO_CALLBACK_URL=http://127.0.0.1:8000/api/conference/minutes/callback
 #   export MINUTES_WORKER_SECRET=dev-minutes-secret
 #   export S3_ENDPOINT=http://127.0.0.1:17886

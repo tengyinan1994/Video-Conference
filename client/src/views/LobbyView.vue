@@ -53,6 +53,7 @@ import {
 import { clearAuth, displayName, getAuth, setAuth, subscribeAuth } from '@/stores/auth'
 import { ApiError } from '@/utils/request'
 import { writeMeetingSession } from '@/utils/meetingSession'
+import { renderMinutesMarkdown } from '@/utils/minutesMarkdown'
 
 type FilterKey = 'all' | 'ongoing' | 'host' | 'joined'
 
@@ -70,6 +71,7 @@ const inviteTarget = ref<MeetingItem | null>(null)
 const detailOpen = ref(false)
 const detailMeeting = ref<MeetingItem | null>(null)
 const detailMinutes = ref<MinutesInfo | null>(null)
+const minutesHtml = computed(() => renderMinutesMarkdown(detailMinutes.value?.summary))
 const minutesLoading = ref(false)
 const minutesRegenning = ref(false)
 const minutesWatchId = ref<number | null>(null)
@@ -1687,7 +1689,7 @@ onUnmounted(() => {
             会议纪要正在编写，完成后会自动更新。
           </p>
           <template v-else-if="detailMinutes?.status === 'ready'">
-            <div class="detail-minutes-summary">{{ detailMinutes.summary }}</div>
+            <div class="detail-minutes-md" v-html="minutesHtml"></div>
             <ul v-if="detailMinutes.structured?.todos?.length" class="detail-minutes-list">
               <li v-for="(t, i) in detailMinutes.structured.todos" :key="'todo-'+i">待办：{{ t }}</li>
             </ul>
@@ -3291,10 +3293,71 @@ html[data-theme='dark'] .minutes-settle-sub {
   opacity: 0.75;
   font-size: 13px;
 }
-.detail-minutes-summary {
-  white-space: pre-wrap;
-  line-height: 1.6;
+/* 纪要正文：Markdown 渲染（结构见 services/minutes-worker/minutes_template.md） */
+.detail-minutes-md {
   margin: 8px 0 12px;
+  line-height: 1.6;
+  font-size: 14px;
+  word-break: break-word;
+}
+.detail-minutes-md h2 {
+  margin: 16px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.detail-minutes-md h2:first-child {
+  margin-top: 4px;
+}
+.detail-minutes-md h3 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+.detail-minutes-md p {
+  margin: 0 0 8px;
+}
+.detail-minutes-md ul {
+  margin: 0 0 8px;
+  padding-left: 1.2em;
+}
+.detail-minutes-md li {
+  margin-bottom: 4px;
+}
+.detail-minutes-md strong {
+  font-weight: 600;
+}
+.detail-minutes-md .md-task {
+  position: relative;
+  list-style: none;
+  margin-left: -1.2em;
+  padding-left: 1.2em;
+}
+.detail-minutes-md .md-task-box {
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 10px;
+  height: 10px;
+  border: 1px solid currentcolor;
+  border-radius: 2px;
+  opacity: 0.6;
+}
+.detail-minutes-md .md-task-box.is-done {
+  opacity: 0.9;
+}
+.detail-minutes-md .md-task-box.is-done::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0;
+  width: 3px;
+  height: 6px;
+  border: solid currentcolor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
 }
 .detail-minutes-list {
   margin: 0 0 8px;
