@@ -65,6 +65,7 @@ import {
   removeMeetingSession,
   type MeetingSession as SessionPayload,
 } from '@/utils/meetingSession'
+import { isMacOS } from '@/utils/platform'
 
 const route = useRoute()
 const router = useRouter()
@@ -75,6 +76,11 @@ const {
   micEnabled,
   cameraEnabled,
   screenSharing,
+  screenShareAudioMissing,
+  screenShareHasAudio,
+  screenShareSurface,
+  screenShareOwnAudioFiltered,
+  screenShareStats,
   chatMessages,
   layoutMode,
   speakerParticipant,
@@ -99,6 +105,24 @@ const {
   switchSpeaker,
   focusParticipant,
 } = useLiveKitRoom()
+
+/**
+ * 共享没声音时的针对性说明：
+ * 「窗口」是浏览器硬限制（Chrome 不采集窗口音频，本地播放器的声音也在窗口里）；
+ * 「整个屏幕」在 Windows 上多半是没勾选系统音频开关，在 macOS 上还可能是系统版本太老。
+ */
+const screenShareAudioHint = computed(() => {
+  if (screenShareSurface.value === 'window') {
+    return '你共享的是「窗口」，Chrome 无法采集窗口的声音（本地播放器也在窗口里）。请停止共享后改用「整个屏幕」，并在选择器底部勾选「同时分享系统音频」。'
+  }
+  if (isMacOS()) {
+    return 'macOS 采集系统声音需要 Chrome 141+ 且系统为 macOS 14.2 及以上（老系统浏览器拿不到系统音频）。可改为共享「Chrome 标签页」并勾选「同时分享标签页中的音频」，或用 BlackHole 等虚拟声卡把系统声音接到麦克风输入。'
+  }
+  return '选择器底部的「同时分享系统音频」没有打开，或当前系统/浏览器不支持采集系统声音。请停止共享后改用「整个屏幕」并勾选该开关。'
+})
+const screenShareAudioWarnTitle = computed(() =>
+  screenShareSurface.value === 'window' ? '「窗口」共享不带声音' : '当前共享没有声音',
+)
 
 const session = ref<SessionPayload | null>(null)
 const joining = ref(false)
@@ -386,17 +410,48 @@ function pickVideoTrack(p?: MediaParticipant | null): { track?: AttachableTrack;
   return { track: undefined, isScreen: false }
 }
 
+/**
+ * 是不是「本机自己在投屏」。
+ * 这种情况绝不把本机投屏轨渲染回本地：共享整个屏幕（或把本会议窗口共享出去）时，
+ * 本会议窗口本身就在采集画面里，本地再渲染一层就会被重新采集，形成无限嵌套；
+ * 而且这层嵌套画面会随共享流一起发给所有人、进录制，所以在本地断开这一环对所有人都生效。
+ * 被共享的窗口本来就在本机上，抬头即可看到，信息卡上的共享状态足以确认投屏是否正常。
+ */
+function isSelfScreenShare(p?: MediaParticipant | null): boolean {
+  return !!p && p.isLocal && p.isScreenSharing
+}
+
 const mainVideo = computed(() => {
   const p = speakerParticipant.value
   if (!p) return null
+  if (isSelfScreenShare(p)) {
+    return { participant: p, track: undefined, isScreen: false, selfShare: true }
+  }
   const best = pickVideoTrack(p)
-  return { participant: p, track: best.track, isScreen: best.isScreen }
+  return { participant: p, track: best.track, isScreen: best.isScreen, selfShare: false }
 })
 const mainStageTrack = computed(() => mainVideo.value?.track)
-const mainIsScreen = computed(() => !!mainVideo.value?.isScreen)
+/** 自己投屏时主视图不出画面，但标签仍要显示「正在共享屏幕」 */
+const mainIsScreen = computed(() => !!mainVideo.value?.isScreen || !!mainVideo.value?.selfShare)
+const mainIsSelfShare = computed(() => !!mainVideo.value?.selfShare)
+
+/** 信息卡上的共享状态：分辨率 / 帧率 / 是否含系统声音（发布时快照，非实时仪表） */
+const selfShareStatus = computed(() => {
+  if (!mainIsSelfShare.value) return ''
+  const parts: string[] = []
+  const stats = screenShareStats.value
+  if (stats) {
+    parts.push(`${stats.width}×${stats.height}`)
+    if (stats.frameRate > 0) parts.push(`${stats.frameRate}fps`)
+  }
+  parts.push(screenShareHasAudio.value ? '含系统声音' : '无系统声音')
+  return parts.join(' · ')
+})
 
 /** 侧栏 tile 与主画面共用同一套"取可渲染 live 轨"逻辑，避免投屏轨失效后渲染黑屏 */
 function videoFor(p: MediaParticipant) {
+  // 自己那格同样不出自己的投屏画面：侧栏缩略图也是实时镜像，一样会被采集进共享内容
+  if (isSelfScreenShare(p)) return { track: undefined, isScreen: false }
   return pickVideoTrack(p)
 }
 
@@ -741,6 +796,24 @@ async function onToggleScreenShare() {
     await toggleScreenShare()
   } catch (err) {
     message.error(mediaErrorMessage(err))
+    return
+  }
+  // 浏览器没给屏幕音轨时静默失败最坑：对方听不到内容声音，共享者却以为一切正常
+  if (screenShareAudioMissing.value) {
+    message.warning(
+      '共享已开始，但浏览器没有捕获到声音：对方听不到你电脑里播放的视频声音（仍能听到你说话）。' +
+        screenShareAudioHint.value,
+      10,
+    )
+    return
+  }
+  // 共享系统音频但浏览器不支持 restrictOwnAudio（Chrome 141 以下）：本页播放的人声会被一起抓走 → 对方听到回声
+  if (screenShareSurface.value === 'screen' && !screenShareOwnAudioFiltered.value) {
+    message.info(
+      '当前浏览器不会自动屏蔽「本页自己播放的声音」（需 Chrome 141 及以上），共享系统音频时对方可能听到自己的回声。' +
+        '建议升级 Chrome，或改用「Chrome 标签页」共享并勾选标签页音频。',
+      10,
+    )
   }
 }
 
@@ -922,6 +995,20 @@ onBeforeUnmount(() => {
               :fit="mainIsScreen ? 'contain' : 'cover'"
               muted
             />
+            <div v-else-if="mainIsSelfShare" class="placeholder self-share">
+              <div class="self-share-card">
+                <div class="self-share-title">
+                  <DesktopOutlined />
+                  <span>正在共享屏幕</span>
+                </div>
+                <p class="self-share-desc">
+                  这里是给你自己看的画面，为避免无限嵌套，不再显示投屏内容。
+                </p>
+                <p class="self-share-desc">请切换到你要演示的窗口继续操作。</p>
+                <p v-if="selfShareStatus" class="self-share-status">{{ selfShareStatus }}</p>
+                <button type="button" class="self-share-stop" @click.stop="onToggleScreenShare">停止共享</button>
+              </div>
+            </div>
             <div v-else class="placeholder">
               <span class="placeholder-name">{{ speakerParticipant.name }}</span>
             </div>
@@ -997,6 +1084,14 @@ onBeforeUnmount(() => {
     </div>
 
     <footer class="controls">
+      <Alert
+        v-if="screenShareAudioMissing"
+        class="share-audio-warn"
+        type="warning"
+        show-icon
+        :message="screenShareAudioWarnTitle"
+        :description="`对方听不到你电脑里播放的视频声音（仍能听到你说话）。${screenShareAudioHint}`"
+      />
       <div class="devices">
         <label class="device-field">
           <span class="device-label">麦克风</span>
@@ -1059,16 +1154,20 @@ onBeforeUnmount(() => {
           </template>
           {{ cameraEnabled ? '关摄像头' : '开摄像头' }}
         </Button>
-        <Button
-          :type="screenSharing ? 'primary' : 'default'"
-          :danger="screenSharing"
-          @click="onToggleScreenShare"
+        <Tooltip
+          title="要让对方听到声音：选「整个屏幕」，并在选择器底部勾选「同时分享系统音频」。选「窗口」时 Chrome 采集不到窗口声音（本地播放器也在这个窗口里）。"
         >
-          <template #icon>
-            <DesktopOutlined />
-          </template>
-          {{ screenSharing ? '停止共享' : '屏幕共享' }}
-        </Button>
+          <Button
+            :type="screenSharing ? 'primary' : 'default'"
+            :danger="screenSharing"
+            @click="onToggleScreenShare"
+          >
+            <template #icon>
+              <DesktopOutlined />
+            </template>
+            {{ screenSharing ? '停止共享' : '屏幕共享' }}
+          </Button>
+        </Tooltip>
         <Button @click="memberOpen = true">
           <template #icon>
             <TeamOutlined />
@@ -1501,6 +1600,55 @@ onBeforeUnmount(() => {
 .placeholder.sm .placeholder-name {
   font-size: 14px;
 }
+/* 自己投屏时的信息卡：黑底，避免本地预览被重新采集形成无限嵌套 */
+.placeholder.self-share {
+  background: #000;
+  color: #cbd5e1;
+}
+.self-share-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 460px;
+  padding: 0 12px;
+  text-align: center;
+}
+.self-share-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(17px, 2.4vw, 24px);
+  font-weight: 600;
+  color: #f1f5f9;
+}
+.self-share-desc {
+  margin: 0;
+  font-size: clamp(12px, 1.5vw, 15px);
+  line-height: 1.6;
+  color: #94a3b8;
+}
+.self-share-status {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+.self-share-stop {
+  margin-top: 6px;
+  padding: 6px 18px;
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  border-radius: 10px;
+  background: rgba(248, 113, 113, 0.16);
+  color: #fca5a5;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.self-share-stop:hover {
+  background: rgba(248, 113, 113, 0.28);
+  color: #fecaca;
+}
 .label {
   position: absolute;
   left: 10px;
@@ -1519,6 +1667,10 @@ onBeforeUnmount(() => {
 .empty {
   color: var(--vc-muted);
   padding: 40px 0;
+}
+.share-audio-warn {
+  max-width: 760px;
+  text-align: left;
 }
 .controls {
   flex-shrink: 0;

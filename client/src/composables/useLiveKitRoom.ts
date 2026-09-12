@@ -141,6 +141,22 @@ function isScreenShareSupported(): boolean {
   return typeof navigator.mediaDevices?.getDisplayMedia === 'function'
 }
 
+/**
+ * Chrome/Edge 141+ 支持 restrictOwnAudio 约束：把「发起采集的这个标签页自己播放的声音」
+ * 从系统音频里剔除。
+ *
+ * 为什么需要它：Windows 上「同时分享系统音频」抓的是默认播放设备的整段混音（WASAPI loopback），
+ * 而其他参会人的声音正是由本页 <audio> 播放出来的，于是被一起抓走再发回房间，
+ * 对方就听到自己的回声。加上这个约束后浏览器会把本页播放的声音减掉（内容声音仍保留），
+ * 老版本浏览器会忽略这个未知约束，需要用提示兜底。
+ */
+export function supportsRestrictOwnAudio(): boolean {
+  if (typeof navigator === 'undefined') return false
+  if (typeof navigator.mediaDevices?.getSupportedConstraints !== 'function') return false
+  const supported = navigator.mediaDevices.getSupportedConstraints() as Record<string, unknown>
+  return supported.restrictOwnAudio === true
+}
+
 function connectionErrorReason(err: unknown): string {
   if (!err || typeof err !== 'object') return ''
   const reasonName = (err as { reasonName?: unknown }).reasonName
@@ -271,6 +287,27 @@ export function useLiveKitRoom() {
   const micEnabled = ref(false)
   const cameraEnabled = ref(false)
   const screenSharing = ref(false)
+  /**
+   * 本地投屏是否真的带上了一条屏幕音频轨。
+   * Chrome 只在「标签页（且勾选同时分享标签页音频）」或「整个屏幕（且勾选同时分享系统音频）」时才给音轨；
+   * 「窗口」共享以及没勾音频开关时 getDisplayMedia 根本不返回音轨，LiveKit 会静默地只发布视频。
+   */
+  const screenShareHasAudio = ref(false)
+  /**
+   * 本地投屏采集面（浏览器给的 displaySurface）：window / screen / browser。
+   * 用来区分「窗口」和「整个屏幕」两种失败原因，给出不同提示。
+   */
+  const screenShareSurface = ref<'window' | 'screen' | 'browser' | ''>('')
+  /**
+   * 本次投屏是否已把「本页自己播放的声音」从系统音频里滤掉（Chrome 141+ 的 restrictOwnAudio）。
+   * 为 false 且确实在共享系统音频时，其他人可能会听到自己的回声。
+   */
+  const screenShareOwnAudioFiltered = ref(false)
+  /**
+   * 本机投屏轨的发布时快照（分辨率 / 帧率），供「自己在投屏」的信息卡展示共享状态。
+   * 只在 publish / rebuild 时从 getSettings() 取一次，不是实时仪表。
+   */
+  const screenShareStats = ref<{ width: number; height: number; frameRate: number } | null>(null)
   const chatMessages = ref<ChatMessage[]>([])
   /** 本地主视图钉选（每人自己选，不广播）；为多人同时共享时切换主画面预留 */
   const focusedIdentity = ref<string | null>(null)
@@ -305,6 +342,8 @@ export function useLiveKitRoom() {
   /** 超过 1 人有画面时才显示右侧成员切换栏 */
   const showSpeakerSide = computed(() => activeVideoCount.value > 1)
   const anyoneScreenSharing = computed(() => participants.value.some((p) => p.isScreenSharing))
+  /** 正在投屏但浏览器没给音轨：远端听不到你播放的内容声音（说话声不受影响） */
+  const screenShareAudioMissing = computed(() => screenSharing.value && !screenShareHasAudio.value)
   const layoutMode = computed<LayoutMode>(() => (hasActiveVideo.value ? 'speaker' : 'avatar'))
 
   /** 该参与人是否有"当前仍可渲染"的视频轨（有媒体流且 live）。
@@ -398,6 +437,10 @@ export function useLiveKitRoom() {
     if (!current) {
       participants.value = []
       screenSharing.value = false
+      screenShareHasAudio.value = false
+      screenShareSurface.value = ''
+      screenShareOwnAudioFiltered.value = false
+      screenShareStats.value = null
       micEnabled.value = false
       cameraEnabled.value = false
       return
@@ -442,6 +485,35 @@ export function useLiveKitRoom() {
     micEnabled.value = local.isMicrophoneEnabled
     cameraEnabled.value = local.isCameraEnabled
     screenSharing.value = local.isScreenShareEnabled
+    // 浏览器是否真的把屏幕音频交给我们了（决定要不要提示用户「对方听不到视频声音」）
+    const localScreenAudio = local.getTrackPublication(Track.Source.ScreenShareAudio)
+    screenShareHasAudio.value = !!(
+      localScreenAudio &&
+      !localScreenAudio.isMuted &&
+      isMediaTrackLive(localScreenAudio.track)
+    )
+    // 采集面 + 共享状态快照：Chrome 只在 video track settings 里给 displaySurface，顺带取分辨率/帧率
+    const localScreen = local.getTrackPublication(Track.Source.ScreenShare)
+    const screenSettings = localScreen?.track?.mediaStreamTrack?.getSettings() as
+      | { displaySurface?: string; width?: number; height?: number; frameRate?: number }
+      | undefined
+    const surface = screenSettings?.displaySurface
+    screenShareSurface.value =
+      surface === 'window' || surface === 'screen' || surface === 'browser' ? surface : ''
+    screenShareStats.value =
+      screenShareSurface.value && screenSettings?.width && screenSettings?.height
+        ? {
+            width: screenSettings.width,
+            height: screenSettings.height,
+            frameRate: Math.round(screenSettings.frameRate ?? 0),
+          }
+        : null
+    // 回声防护是否生效：以浏览器回报的 settings 为准，未回报时按「支持该约束」推断
+    const ownAudio = (localScreenAudio?.track?.mediaStreamTrack?.getSettings() as
+      | { restrictOwnAudio?: boolean }
+      | undefined)?.restrictOwnAudio
+    screenShareOwnAudioFiltered.value =
+      screenShareHasAudio.value && (ownAudio === true || supportsRestrictOwnAudio())
   }
 
   function bindRoomEvents(r: Room) {
@@ -807,6 +879,8 @@ export function useLiveKitRoom() {
               echoCancellation: false,
               noiseSuppression: false,
               autoGainControl: false,
+              // Chrome 141+：把本页自己播放的声音（其他参会人的人声）从系统音频里减掉，否则对方听到回声
+              ...(supportsRestrictOwnAudio() ? { restrictOwnAudio: true } : {}),
             },
             systemAudio: 'include',
             contentHint: 'detail',
@@ -916,6 +990,11 @@ export function useLiveKitRoom() {
     micEnabled,
     cameraEnabled,
     screenSharing,
+    screenShareHasAudio,
+    screenShareSurface,
+    screenShareOwnAudioFiltered,
+    screenShareAudioMissing,
+    screenShareStats,
     isConnected,
     chatMessages,
     layoutMode,
