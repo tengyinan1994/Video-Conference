@@ -1,5 +1,5 @@
 # Video Conference — dept 全量部署（独立 MySQL/Redis，数据 bind mount 到 DATA_DIR）
-# 用法见 deploy/test/README.md 或 ./deploy/test/deploy.sh full
+# 用法见 deploy/prod/README.md 或 ./deploy/prod/deploy.sh full
 
 name: video-conference
 

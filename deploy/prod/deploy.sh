@@ -2,13 +2,13 @@
 # dept 一键部署（本机执行，SSH 到 DEPLOY_HOST）
 #
 # 用法：
-#   ./deploy/test/deploy.sh full
-#   ./deploy/test/deploy.sh update hotgo|client|admin|livekit|minutes-worker
-#   ./deploy/test/deploy.sh sync
-#   ./deploy/test/deploy.sh pull
-#   ./deploy/test/deploy.sh status
-#   ./deploy/test/deploy.sh logs [service]
-#   ./deploy/test/deploy.sh down
+#   ./deploy/prod/deploy.sh full
+#   ./deploy/prod/deploy.sh update hotgo|client|admin|livekit|minutes-worker
+#   ./deploy/prod/deploy.sh sync
+#   ./deploy/prod/deploy.sh pull
+#   ./deploy/prod/deploy.sh status
+#   ./deploy/prod/deploy.sh logs [service]
+#   ./deploy/prod/deploy.sh down
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

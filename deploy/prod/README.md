@@ -1,20 +1,35 @@
-# dept 全量部署（test）
+# 生产部署（dept）
+
+> ⚠️ **本目录是生产环境（PROD），已上线，有真实用户在使用。**（原名 `deploy/test/`，已更名为 `deploy/prod/`）
+>
+> - 只允许发布单个服务：`./deploy/prod/deploy.sh update <service>`
+> - **禁止** `full`（重建全部并重启）与 `down`（用户断会）
+> - 数据库结构变更必须先备份再生产手写执行
+> - 任何部署都需**用户明确授权**后才可执行
+>
+> 详见仓库根 [`AGENTS.md`](../../AGENTS.md) 文首「生产环境状态」。
 
 独立 MySQL / Redis / RustFS / LiveKit / Egress / HotGo / Client，数据 bind mount 到 `${DATA_DIR}`（默认 `/data/video-conference/data`）。
+
+> ⚠️ **不要改动 `DATA_DIR` / `REMOTE_DIR`，不要清空远端 data 目录。**
+> compose 把 `init/*.sql` 挂到 MySQL 的 `/docker-entrypoint-initdb.d/`，该目录只在数据目录为**空**时执行 ——
+> 数据目录一旦为空/配错，MySQL 会重新初始化，生产数据受损。
 
 会议页与管理后台 **分端口 HTTPS**：
 
 - 会议：`https://PUBLIC_HOST:CLIENT_PORT/`（默认 17885）
 - 管理后台：`https://PUBLIC_HOST:ADMIN_PORT/admin`（默认 17883）
 
-## 首次部署
+## 从零部署（新环境才用，现有生产勿执行）
+
+> 首次配置已在这些生产机上完成。以下命令**仅适用于全新机器**。
 
 ```bash
-cp deploy/test/.env.example deploy/test/.env
-cp deploy/test/config/config.example.yaml deploy/test/config/config.yaml
+cp deploy/prod/.env.example deploy/prod/.env
+cp deploy/prod/config/config.example.yaml deploy/prod/config/config.yaml
 # 按需改 PUBLIC_HOST、密钥、密码
 
-./deploy/test/deploy.sh full
+./deploy/prod/deploy.sh full
 ```
 
 `full` 会：本机交叉编译 amd64 镜像 → rsync 到 dept → `docker load` → 启动 compose。
@@ -22,11 +37,11 @@ cp deploy/test/config/config.example.yaml deploy/test/config/config.yaml
 ## 单服务更新
 
 ```bash
-./deploy/test/deploy.sh update hotgo
-./deploy/test/deploy.sh update client
-./deploy/test/deploy.sh update admin
-./deploy/test/deploy.sh update livekit
-./deploy/test/deploy.sh update minutes-worker
+./deploy/prod/deploy.sh update hotgo
+./deploy/prod/deploy.sh update client
+./deploy/prod/deploy.sh update admin
+./deploy/prod/deploy.sh update livekit
+./deploy/prod/deploy.sh update minutes-worker
 ```
 
 会后 AI 纪要依赖 `minutes-worker`（见 `services/minutes-worker/README.md`）。真实 LLM：在 `.env` 填 `OPENAI_API_KEY` 并设 `MOCK_LLM=0`。
@@ -34,12 +49,13 @@ cp deploy/test/config/config.example.yaml deploy/test/config/config.yaml
 
 ## 运维
 
+> ⚠️ `down` 会停掉全部生产服务（用户断会），**生产禁用**；`sync` / `pull` 会覆盖配置或拉新镜像，执行前先确认。
+
 ```bash
-./deploy/test/deploy.sh sync      # 只同步 compose/init/config
-./deploy/test/deploy.sh pull      # 拉公共镜像
-./deploy/test/deploy.sh status
-./deploy/test/deploy.sh logs hotgo
-./deploy/test/deploy.sh down
+./deploy/prod/deploy.sh status
+./deploy/prod/deploy.sh logs hotgo
+./deploy/prod/deploy.sh sync      # ⚠️ 会覆盖远端 compose/init/config
+./deploy/prod/deploy.sh pull      # ⚠️ 会拉公共镜像新版本
 ```
 
 ## 数据目录（远端）

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# deploy/test 公共变量与检查
+# deploy/prod 公共变量与检查
 
-TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT_ROOT="$(cd "$TEST_DIR/../.." && pwd)"
+PROD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(cd "$PROD_DIR/../.." && pwd)"
 
 load_env() {
-  if [[ -f "$TEST_DIR/.env" ]]; then
+  if [[ -f "$PROD_DIR/.env" ]]; then
     set -a
     # shellcheck source=/dev/null
-    source "$TEST_DIR/.env"
+    source "$PROD_DIR/.env"
     set +a
   else
-    echo "缺少 $TEST_DIR/.env，请先：cp deploy/test/.env.example deploy/test/.env" >&2
+    echo "缺少 $PROD_DIR/.env，请先：cp deploy/prod/.env.example deploy/prod/.env" >&2
     exit 1
   fi
   DEPLOY_HOST="${DEPLOY_HOST:-dept}"
@@ -22,9 +22,9 @@ load_env() {
 }
 
 require_config() {
-  if [[ ! -f "$TEST_DIR/config/config.yaml" ]]; then
-    echo "缺少 $TEST_DIR/config/config.yaml" >&2
-    echo "请先：cp deploy/test/config/config.example.yaml deploy/test/config/config.yaml" >&2
+  if [[ ! -f "$PROD_DIR/config/config.yaml" ]]; then
+    echo "缺少 $PROD_DIR/config/config.yaml" >&2
+    echo "请先：cp deploy/prod/config/config.example.yaml deploy/prod/config/config.yaml" >&2
     exit 1
   fi
 }

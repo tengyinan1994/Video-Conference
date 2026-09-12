@@ -12,7 +12,7 @@
       "name": "LiveKit (Compose 17880)",
       "type": "node-terminal",
       "request": "launch",
-      "command": "echo '请使用 deploy/dev/dev-livekit.sh 或 deploy/test 全栈部署'",
+      "command": "echo '请使用 deploy/dev/dev-livekit.sh（本机）；生产部署见 deploy/prod/README.md，需用户授权'",
       "cwd": "${workspaceFolder}"
     },
     {

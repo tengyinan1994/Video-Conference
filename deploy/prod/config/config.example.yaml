@@ -1,5 +1,5 @@
 # Docker 部署用配置模板：
-#   cp deploy/test/config/config.example.yaml deploy/test/config/config.yaml
+#   cp deploy/prod/config/config.example.yaml deploy/prod/config/config.yaml
 # 已将 database / redis 主机改为 compose 服务名 mysql、redis。
 # livekit.url 必须改成浏览器可达的 ws://宿主机IP:17880（与 .env LIVEKIT_SIGNAL_PORT 一致）。
 

@@ -24,7 +24,7 @@ cp deploy/dev/.env.example deploy/dev/.env
 
 ## 会后 AI 纪要（本机）
 
-1. 执行 SQL：`deploy/test/init/09-conference-minutes.sql`
+1. 执行 SQL：`deploy/prod/init/09-conference-minutes.sql`
 2. HotGo `config.yaml` 增加 `minutes` 段（见 `manifest/config/config.example.yaml`）
 3. 起 Worker：见 `services/minutes-worker/README.md`（开发可用 `ASR_BACKEND=mock`）
 4. 需 Egress + RustFS 可用（与录制相同），AI 音源会另占一路 audio-only Egress

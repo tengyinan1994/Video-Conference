@@ -1,7 +1,7 @@
 -- hotgo 会议类型菜单权限 SQL
 -- Date: 2026-09-09
 -- 管理端「会议管理 → 会议类型」：维护会议类型（仅名称），供会议端新建会议时选择
--- 与 deploy/test/init/08-conference-meeting-type.sql 的菜单段保持一致
+-- 与 deploy/prod/init/08-conference-meeting-type.sql 的菜单段保持一致
 SET NAMES utf8mb4;
 
 SET @now := NOW();

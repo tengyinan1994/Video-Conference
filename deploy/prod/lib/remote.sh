@@ -11,13 +11,13 @@ prepare_remote_dirs() {
 
 sync_stack_files() {
   echo "==> 同步 compose / init / config / .env 到 ${DEPLOY_HOST}:${REMOTE_DIR}"
-  rsync -az "$TEST_DIR/docker-compose.yml" "${DEPLOY_HOST}:${REMOTE_DIR}/"
-  rsync -az "$TEST_DIR/.env" "${DEPLOY_HOST}:${REMOTE_DIR}/"
-  rsync -az "$TEST_DIR/config/config.yaml" "${DEPLOY_HOST}:${REMOTE_DIR}/config/"
-  if [[ -f "$TEST_DIR/config/casbin.conf" ]]; then
-    rsync -az "$TEST_DIR/config/casbin.conf" "${DEPLOY_HOST}:${REMOTE_DIR}/config/"
+  rsync -az "$PROD_DIR/docker-compose.yml" "${DEPLOY_HOST}:${REMOTE_DIR}/"
+  rsync -az "$PROD_DIR/.env" "${DEPLOY_HOST}:${REMOTE_DIR}/"
+  rsync -az "$PROD_DIR/config/config.yaml" "${DEPLOY_HOST}:${REMOTE_DIR}/config/"
+  if [[ -f "$PROD_DIR/config/casbin.conf" ]]; then
+    rsync -az "$PROD_DIR/config/casbin.conf" "${DEPLOY_HOST}:${REMOTE_DIR}/config/"
   fi
-  rsync -az "$TEST_DIR/init/" "${DEPLOY_HOST}:${REMOTE_DIR}/init/"
+  rsync -az "$PROD_DIR/init/" "${DEPLOY_HOST}:${REMOTE_DIR}/init/"
 }
 
 scp_image_tars() {

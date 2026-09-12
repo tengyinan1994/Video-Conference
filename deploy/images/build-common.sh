@@ -3,8 +3,8 @@
 
 read_public_host() {
   local host="${VC_PUBLIC_HOST:-}"
-  if [[ -z "$host" && -f "${ROOT}/deploy/test/.env" ]]; then
-    host="$(grep '^PUBLIC_HOST=' "${ROOT}/deploy/test/.env" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)"
+  if [[ -z "$host" && -f "${ROOT}/deploy/prod/.env" ]]; then
+    host="$(grep '^PUBLIC_HOST=' "${ROOT}/deploy/prod/.env" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)"
   fi
   echo "$host"
 }

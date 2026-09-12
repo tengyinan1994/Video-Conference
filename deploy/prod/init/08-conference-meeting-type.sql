@@ -1,6 +1,6 @@
 -- 部署初始化：会议类型（管理端「会议管理 → 会议类型」维护）+ 会议表关联字段 + 菜单权限
 -- 说明：本文件在全新数据目录由 docker-entrypoint-initdb.d 自动执行；
---       已有库需手动执行（见 deploy/test/README.md）：
+--       已有库需手动执行（见 deploy/prod/README.md）：
 --       docker exec -i vc-mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD $MYSQL_DATABASE < init/08-conference-meeting-type.sql
 -- 必须声明客户端字符集，否则 docker initdb 默认 latin1 会把中文二次编码成乱码
 SET NAMES utf8mb4;

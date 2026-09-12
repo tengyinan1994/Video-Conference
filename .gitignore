@@ -13,12 +13,12 @@
 .env.*
 !.env.example
 !deploy/dev/.env.example
-!deploy/test/.env.example
+!deploy/prod/.env.example
 
 # 部署运行时配置与镜像 tar
 deploy/dev/.env
-deploy/test/.env
-deploy/test/config/config.yaml
+deploy/prod/.env
+deploy/prod/config/config.yaml
 deploy/images/amd64/*.tar
 deploy/images/amd64/*.tar.gz
 deploy/images/arm64/*.tar
