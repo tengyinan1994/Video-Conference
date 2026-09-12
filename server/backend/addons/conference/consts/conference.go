@@ -20,8 +20,8 @@ const (
 	MaxNicknameLen = 32
 	// MaxMeetingTitleLen 会议名称最大长度
 	MaxMeetingTitleLen = 64
-	// MaxMeetingTypeNameLen 会议类型名称最大长度
-	MaxMeetingTypeNameLen = 32
+	// MaxMeetingTypeNameLen 会议类型名称最大长度（会议端标签需完整展示，故限制为 10）
+	MaxMeetingTypeNameLen = 10
 	// RateLimitCachePrefix 限流缓存 key 前缀
 	RateLimitCachePrefix = "conference:token:rate:"
 	// HostCachePrefix 房间主持人缓存 key 前缀

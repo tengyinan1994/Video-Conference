@@ -158,13 +158,6 @@ const selectedTypeTags = computed(() =>
   typeFilterOptions.value.filter((o) => selectedTypeIds.value.includes(o.value)),
 )
 
-/** 标题行最多展示的已选标签数，超出用 +N 收起 */
-const TYPE_TAG_LIMIT = 3
-const visibleTypeTags = computed(() => selectedTypeTags.value.slice(0, TYPE_TAG_LIMIT))
-const hiddenTypeTagCount = computed(() =>
-  Math.max(0, selectedTypeTags.value.length - TYPE_TAG_LIMIT),
-)
-
 /** 点选/取消一个会议类型（多选，不关闭面板） */
 function toggleTypeFilter(typeId: number) {
   const picked = new Set(selectedTypeIds.value)
@@ -1276,7 +1269,7 @@ onUnmounted(() => {
               </template>
             </Dropdown>
             <span
-              v-for="t in visibleTypeTags"
+              v-for="t in selectedTypeTags"
               :key="t.value"
               class="type-tag"
               :class="typeClass(t.value)"
@@ -1285,9 +1278,6 @@ onUnmounted(() => {
               <i class="type-dot" aria-hidden="true" />
               <span class="type-tag-label">{{ t.label }}</span>
               <CloseOutlined class="type-tag-close" @click="toggleTypeFilter(t.value)" />
-            </span>
-            <span v-if="hiddenTypeTagCount > 0" class="type-tag type-tag-more">
-              +{{ hiddenTypeTagCount }}
             </span>
           </div>
           <div class="filters" role="tablist">
@@ -2358,9 +2348,8 @@ html[data-theme='dark'] .type-filter-dot {
 }
 
 .type-tag-label {
-  max-width: 96px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 类型名称已限制为 10 字，完整展示不省略 */
+  white-space: nowrap;
 }
 
 .type-tag-close {
@@ -2371,16 +2360,6 @@ html[data-theme='dark'] .type-filter-dot {
 }
 .type-tag-close:hover {
   opacity: 1;
-}
-
-.type-tag-more {
-  padding: 0 9px;
-  border-color: var(--line);
-  background: rgba(15, 23, 42, 0.05);
-  color: var(--ink-60);
-}
-html[data-theme='dark'] .type-tag-more {
-  background: rgba(255, 255, 255, 0.08);
 }
 
 /* 下拉面板（挂到 body，需自带主题变量） */
@@ -2498,8 +2477,7 @@ html[data-theme='dark'] .type-panel {
 }
 
 .type-panel-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 类型名称已限制为 10 字，完整展示不省略 */
   white-space: nowrap;
 }
 
@@ -2677,9 +2655,7 @@ html[data-theme='dark'] .pill-host {
   border: 1px solid var(--type-bd);
   color: var(--type-fg);
   background: var(--type-bg);
-  max-width: 170px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 类型名称已限制为 10 字，标签需完整展示，不做宽度截断 */
   white-space: nowrap;
 }
 .pill-type .type-dot {

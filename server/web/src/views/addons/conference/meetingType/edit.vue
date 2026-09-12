@@ -22,7 +22,7 @@
             <n-input
               v-model:value="formValue.name"
               placeholder="请输入类型名称，例如 部门例会"
-              maxlength="32"
+              maxlength="10"
               show-count
             />
           </n-form-item>
