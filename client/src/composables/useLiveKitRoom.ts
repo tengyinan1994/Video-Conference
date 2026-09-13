@@ -110,6 +110,7 @@ export interface ChatMessage {
 export interface MediaDeviceOption {
   deviceId: string
   label: string
+  kind: string
 }
 
 const CHAT_TOPIC = 'chat'
@@ -675,18 +676,21 @@ export function useLiveKitRoom() {
         .map((d) => ({
           deviceId: d.deviceId,
           label: d.label || `麦克风 ${d.deviceId.slice(0, 6)}`,
+          kind: d.kind,
         }))
       videoInputs.value = devices
         .filter((d) => d.kind === 'videoinput' && d.deviceId)
         .map((d) => ({
           deviceId: d.deviceId,
           label: d.label || `摄像头 ${d.deviceId.slice(0, 6)}`,
+          kind: d.kind,
         }))
       audioOutputs.value = devices
         .filter((d) => d.kind === 'audiooutput' && d.deviceId)
         .map((d) => ({
           deviceId: d.deviceId,
           label: d.label || `扬声器 ${d.deviceId.slice(0, 6)}`,
+          kind: d.kind,
         }))
 
       const r = room.value
