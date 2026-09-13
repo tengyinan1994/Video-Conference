@@ -79,16 +79,20 @@ type (
 		AdminEdit(ctx context.Context, in *sysin.AdminMeetingTypeEditInp) (err error)
 		AdminDelete(ctx context.Context, in *sysin.AdminMeetingTypeDeleteInp) (err error)
 	}
+	ISysClientRelease interface {
+		OpenForDownload(ctx context.Context, platform string) (rc io.ReadCloser, filename string, size int64, err error)
+	}
 )
 
 var (
-	localSysToken       ISysToken
-	localSysRoom        ISysRoom
-	localSysMeeting     ISysMeeting
-	localSysAuth        ISysAuth
-	localSysRecording   ISysRecording
-	localSysMinutes     ISysMinutes
-	localSysMeetingType ISysMeetingType
+	localSysToken         ISysToken
+	localSysRoom          ISysRoom
+	localSysMeeting       ISysMeeting
+	localSysAuth          ISysAuth
+	localSysRecording     ISysRecording
+	localSysMinutes       ISysMinutes
+	localSysMeetingType   ISysMeetingType
+	localSysClientRelease ISysClientRelease
 )
 
 func SysToken() ISysToken {
@@ -166,4 +170,15 @@ func SysMeetingType() ISysMeetingType {
 
 func RegisterSysMeetingType(i ISysMeetingType) {
 	localSysMeetingType = i
+}
+
+func SysClientRelease() ISysClientRelease {
+	if localSysClientRelease == nil {
+		panic("implement not found for interface ISysClientRelease, forgot register?")
+	}
+	return localSysClientRelease
+}
+
+func RegisterSysClientRelease(i ISysClientRelease) {
+	localSysClientRelease = i
 }

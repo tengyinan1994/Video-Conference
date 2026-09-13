@@ -26,11 +26,13 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
+  DownloadOutlined,
   UserAddOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons-vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import ClientDownloadModal from '@/components/ClientDownloadModal.vue'
 import { fetchMe, logout as apiLogout } from '@/api/auth'
 import {
   createMeeting,
@@ -100,6 +102,7 @@ const typeFilterOpen = ref(false)
 const searchOpen = ref(false)
 const searchKeyword = ref('')
 const searchInputRef = ref<{ focus?: () => void } | null>(null)
+const downloadOpen = ref(false)
 
 type InviteKind = 'guest' | 'member'
 
@@ -1149,6 +1152,15 @@ onUnmounted(() => {
             <template #icon><SearchOutlined /></template>
           </Button>
           <ThemeToggle />
+          <Button
+            type="text"
+            class="icon-btn"
+            title="下载客户端"
+            aria-label="下载客户端"
+            @click="downloadOpen = true"
+          >
+            <template #icon><DownloadOutlined /></template>
+          </Button>
           <Button type="text" class="icon-btn" :loading="loading" @click="() => refresh()">
             <template #icon><ReloadOutlined /></template>
           </Button>
@@ -1721,6 +1733,7 @@ onUnmounted(() => {
         </div>
       </div>
     </Modal>
+    <ClientDownloadModal v-model:open="downloadOpen" />
     <Teleport to="body">
       <div v-if="minutesHintLoading" class="minutes-settle" role="status" aria-live="polite">
         <div class="minutes-settle-card">

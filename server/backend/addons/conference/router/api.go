@@ -33,6 +33,7 @@ func Api(ctx context.Context, group *ghttp.RouterGroup) {
 			group.Middleware(service.Middleware().ApiAuth)
 			group.GET("/recording/download", api.HandleRecordingDownload)
 			group.GET("/recording/play", api.HandleRecordingPlay)
+			group.GET("/client/download", api.HandleClientDownload)
 			group.Bind(
 				api.Auth,
 				api.Meeting,

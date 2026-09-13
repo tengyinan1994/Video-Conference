@@ -284,3 +284,57 @@ export async function downloadRecordingFile(id: number, filename: string) {
   a.remove()
   URL.revokeObjectURL(objectUrl)
 }
+
+function filenameFromDisposition(header: string): string {
+  const star = /filename\*=(?:UTF-8''|utf-8'')([^;]+)/i.exec(header)
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim())
+    } catch {
+      return star[1].trim()
+    }
+  }
+  const quoted = /filename="([^"]+)"/i.exec(header)
+  if (quoted?.[1]) return quoted[1]
+  const plain = /filename=([^;]+)/i.exec(header)
+  return plain?.[1]?.trim() || ''
+}
+
+export async function downloadClientInstaller(platform: string) {
+  const base = getApiBaseUrl()
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  const q = new URLSearchParams()
+  q.set('platform', platform)
+  let res: Response
+  try {
+    res = await fetch(`${base}/api/conference/client/download?${q.toString()}`, { headers })
+  } catch {
+    throw new ApiError(-1, '无法连接业务服务，下载失败')
+  }
+  const contentType = res.headers.get('content-type') || ''
+  if (!res.ok || contentType.includes('application/json')) {
+    let message = `下载失败（HTTP ${res.status}）`
+    try {
+      const body = (await res.json()) as { message?: string }
+      if (body.message) message = body.message
+    } catch {
+      // ignore parse error
+    }
+    throw new ApiError(res.status, message)
+  }
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download =
+    filenameFromDisposition(res.headers.get('content-disposition') || '') ||
+    `视频会议_${platform}_setup.exe`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(objectUrl)
+}
