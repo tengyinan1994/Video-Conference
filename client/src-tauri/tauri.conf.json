@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Video Conference",
+  "productName": "视频会议",
   "version": "0.1.0",
   "identifier": "com.tyn.videoconference",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Video Conference",
+        "title": "视频会议",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -43,6 +43,8 @@
     },
     "windows": {
       "nsis": {
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false,
         "installerHooks": "./windows/hooks.nsh"
       }
     }

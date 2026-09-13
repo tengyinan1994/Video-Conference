@@ -1,3 +1,6 @@
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { isTauri } from '@/utils/platform'
+
 const THEME_KEY = 'vc.theme'
 
 export type ThemeMode = 'light' | 'dark'
@@ -9,10 +12,7 @@ function read(): ThemeMode {
   } catch {
     // ignore
   }
-  if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches) {
-    return 'light'
-  }
-  return 'dark'
+  return 'light'
 }
 
 let current: ThemeMode = read()
@@ -30,6 +30,17 @@ export function isDark(): boolean {
   return current === 'dark'
 }
 
+function syncNativeTitleBar(mode: ThemeMode) {
+  if (!isTauri()) return
+  try {
+    void getCurrentWindow().setTheme(mode).catch(() => {
+      // ignore
+    })
+  } catch {
+    // ignore
+  }
+}
+
 export function applyTheme(mode: ThemeMode = current) {
   current = mode
   document.documentElement.setAttribute('data-theme', mode)
@@ -39,6 +50,7 @@ export function applyTheme(mode: ThemeMode = current) {
   } catch {
     // ignore
   }
+  syncNativeTitleBar(mode)
   emit()
 }
 

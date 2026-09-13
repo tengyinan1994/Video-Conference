@@ -43,7 +43,7 @@ VS Code / Cursor：`Client (Vite)` 或 `Client (Tauri)`；复合启动可用「�
 
 ## 打包桌面端（Windows NSIS）
 
-当前只打 **Windows NSIS `setup.exe`**（`src-tauri/tauri.conf.json` 的 `bundle.targets` = `nsis`）。**真正产出安装包需要一台 Windows 机器**；在 macOS / Linux 上跑 `pnpm tauri:build` 不会生成 NSIS。
+当前只打 **Windows NSIS `setup.exe`**（`src-tauri/tauri.conf.json` 的 `bundle.targets` = `nsis`）。安装向导为简体中文，桌面显示名为「视频会议」。**真正产出安装包需要一台 Windows 机器**；在 macOS / Linux 上跑 `pnpm tauri:build` 不会生成 NSIS。
 
 生产 API 由 Vite 在 `pnpm build` 时读入 `client/.env.production`（`VITE_API_BASE_URL=https://125.211.217.19:17885`）。仓库里同时有同内容的 `.env.production.example`。换地址后重新打包即可。
 
