@@ -1,9 +1,12 @@
 //! Tauri 桌面壳入口。
 //! 会议业务在 `client/src`（Vue 3）；这里只负责窗口与系统侧能力。
 
+mod titlebar;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .invoke_handler(tauri::generate_handler![titlebar::set_titlebar_colors])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

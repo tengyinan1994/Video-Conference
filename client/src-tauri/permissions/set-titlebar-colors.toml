@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-set-titlebar-colors"
+description = "允许设置 Windows 原生标题栏 / 边框颜色（DWM caption + border）"
+commands.allow = ["set_titlebar_colors"]

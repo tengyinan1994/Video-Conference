@@ -3,7 +3,6 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button, Form, Input, message } from 'ant-design-vue'
 import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons-vue'
-import ThemeToggle from '@/components/ThemeToggle.vue'
 import { fetchCaptcha, fetchLoginConfig, login } from '@/api/auth'
 import { setAuth } from '@/stores/auth'
 import { encryptPassword } from '@/utils/encrypt'
@@ -96,10 +95,6 @@ onMounted(() => {
   <div class="login-page">
     <div class="login-bg" aria-hidden="true" :style="{ backgroundImage: `url(${loginBg})` }" />
     <div class="login-veil" aria-hidden="true" />
-
-    <div class="theme-slot">
-      <ThemeToggle />
-    </div>
 
     <div class="login-shell">
       <section class="login-brand">
@@ -227,13 +222,6 @@ onMounted(() => {
     ),
     radial-gradient(900px 520px at 12% 18%, rgba(243, 160, 76, 0.22), transparent 58%),
     radial-gradient(780px 480px at 88% 82%, rgba(59, 130, 246, 0.16), transparent 55%);
-}
-
-.theme-slot {
-  position: fixed;
-  top: 18px;
-  right: 18px;
-  z-index: 3;
 }
 
 .login-shell {

@@ -1239,7 +1239,17 @@ onBeforeUnmount(() => {
           </template>
           {{ micEnabled ? '静音' : '取消静音' }}
         </Button>
-        <Button @click="onToggleCamera">
+        <Tooltip v-if="videoInputs.length === 0" title="无摄像头">
+          <span>
+            <Button disabled>
+              <template #icon>
+                <VideoCameraAddOutlined />
+              </template>
+              无摄像头
+            </Button>
+          </span>
+        </Tooltip>
+        <Button v-else @click="onToggleCamera">
           <template #icon>
             <VideoCameraOutlined v-if="cameraEnabled" />
             <VideoCameraAddOutlined v-else />

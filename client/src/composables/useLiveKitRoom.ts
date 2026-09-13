@@ -5,7 +5,6 @@ import {
   createLocalTracks,
   DisconnectReason,
   type LocalParticipant,
-  type LocalTrack,
   type Participant,
   type RemoteParticipant,
   Room,
@@ -15,6 +14,9 @@ import {
   type RemoteTrack,
   type RemoteTrackPublication,
 } from 'livekit-client'
+import { isTauri } from '@/utils/platform'
+import { resolveLiveKitUrlFromEnv } from './resolveLiveKitUrl'
+import { hasRealVideoInput, warmUpMediaPermissionsWith } from './mediaPermissionWarmUp'
 
 export type ConnectionStatus =
   | 'idle'
@@ -108,6 +110,7 @@ export interface ChatMessage {
 export interface MediaDeviceOption {
   deviceId: string
   label: string
+  kind: string
 }
 
 const CHAT_TOPIC = 'chat'
@@ -266,16 +269,14 @@ export function parseRoleHost(metadata: string | undefined): boolean {
   }
 }
 
-/** LiveKit 信令地址：https 页必须同源 wss（nginx/Vite 反代 /rtc），避免混合内容被拦 */
+/** LiveKit 信令地址：Tauri 用 token.serverUrl；浏览器 https 页走同源 wss（nginx/Vite 反代 /rtc） */
 export function resolveLiveKitUrl(serverUrl: string): string {
-  if (typeof location === 'undefined') {
-    return serverUrl
-  }
-  if (import.meta.env.DEV || location.protocol === 'https:') {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${proto}//${location.host}`
-  }
-  return serverUrl
+  return resolveLiveKitUrlFromEnv(serverUrl, {
+    isTauri: isTauri(),
+    protocol: typeof location !== 'undefined' ? location.protocol : undefined,
+    host: typeof location !== 'undefined' ? location.host : undefined,
+    isDev: import.meta.env.DEV,
+  })
 }
 
 
@@ -659,14 +660,7 @@ export function useLiveKitRoom() {
       await warmUpMediaPermissions()
       devicePermissionWarmed = true
     } catch {
-      // 部分环境视频权限会拦整次；至少抢麦克风权限以便枚举
-      try {
-        const tracks = await createLocalTracks({ audio: true, video: false })
-        tracks.forEach((t: LocalTrack) => t.stop())
-        devicePermissionWarmed = true
-      } catch {
-        // 用户拒绝或非安全上下文（如 http://内网IP）时列表可能仍为空
-      }
+      // 用户拒绝麦克风或非安全上下文（如 http://内网IP）时列表可能仍为空
     }
   }
 
@@ -682,18 +676,21 @@ export function useLiveKitRoom() {
         .map((d) => ({
           deviceId: d.deviceId,
           label: d.label || `麦克风 ${d.deviceId.slice(0, 6)}`,
+          kind: d.kind,
         }))
       videoInputs.value = devices
         .filter((d) => d.kind === 'videoinput' && d.deviceId)
         .map((d) => ({
           deviceId: d.deviceId,
           label: d.label || `摄像头 ${d.deviceId.slice(0, 6)}`,
+          kind: d.kind,
         }))
       audioOutputs.value = devices
         .filter((d) => d.kind === 'audiooutput' && d.deviceId)
         .map((d) => ({
           deviceId: d.deviceId,
           label: d.label || `扬声器 ${d.deviceId.slice(0, 6)}`,
+          kind: d.kind,
         }))
 
       const r = room.value
@@ -804,14 +801,27 @@ export function useLiveKitRoom() {
       await r.connect(resolveLiveKitUrl(serverUrl), token)
       // 默认关麦关摄像头；仅在进房前显式选择开启时才请求设备
       await r.localParticipant.setMicrophoneEnabled(wantMic)
-      await r.localParticipant.setCameraEnabled(wantCamera)
       micEnabled.value = r.localParticipant.isMicrophoneEnabled
-      cameraEnabled.value = r.localParticipant.isCameraEnabled
+      cameraEnabled.value = false
       qualityMap.set(r.localParticipant.identity, mapQuality(r.localParticipant.connectionQuality))
       rebuildParticipants()
       queueMicrotask(() => rebuildParticipants())
-      // 设备枚举失败不阻断进房
-      void refreshDevices()
+      // 先预热麦克风并枚举。无 videoinput 时绝不 setCameraEnabled(true)
+      // （Windows WebView2 在无摄像头机上请求 video 可能原生崩溃）
+      try {
+        await refreshDevices()
+      } catch {
+        // 设备枚举失败不阻断进房
+      }
+      if (wantCamera && hasRealVideoInput(videoInputs.value)) {
+        try {
+          await r.localParticipant.setCameraEnabled(true)
+        } catch {
+          // 摄像头采集失败不阻断进房
+        }
+      }
+      cameraEnabled.value = r.localParticipant.isCameraEnabled
+      rebuildParticipants()
       status.value = 'connected'
     } catch (err) {
       status.value = 'error'
@@ -871,9 +881,17 @@ export function useLiveKitRoom() {
     const local = room.value?.localParticipant
     if (!local) return
     const next = !local.isCameraEnabled
-    // 摄像头与屏幕共享互斥：开摄像头前先停共享
-    if (next && local.isScreenShareEnabled) {
-      await local.setScreenShareEnabled(false)
+    if (next) {
+      if (!hasRealVideoInput(videoInputs.value)) {
+        await refreshDevices()
+      }
+      if (!hasRealVideoInput(videoInputs.value)) {
+        throw new Error('当前设备没有可用摄像头')
+      }
+      // 摄像头与屏幕共享互斥：开摄像头前先停共享
+      if (local.isScreenShareEnabled) {
+        await local.setScreenShareEnabled(false)
+      }
     }
     await local.setCameraEnabled(next)
     cameraEnabled.value = local.isCameraEnabled
@@ -1057,6 +1075,13 @@ export function useLiveKitRoom() {
 
 /** 预热权限以便枚举到带 label 的设备列表（可选调用） */
 export async function warmUpMediaPermissions() {
-  const tracks = await createLocalTracks({ audio: true, video: true })
-  tracks.forEach((t: LocalTrack) => t.stop())
+  await warmUpMediaPermissionsWith({
+    createLocalTracks,
+    enumerateDevices: async () => {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
+        return []
+      }
+      return navigator.mediaDevices.enumerateDevices()
+    },
+  })
 }

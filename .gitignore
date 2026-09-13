@@ -12,8 +12,11 @@
 .env
 .env.*
 !.env.example
+!.env.production
+!.env.production.example
 !deploy/dev/.env.example
 !deploy/prod/.env.example
+
 
 # 部署运行时配置与镜像 tar
 deploy/dev/.env
