@@ -54,7 +54,7 @@ pnpm install
 pnpm tauri:build
 ```
 
-产物在 `src-tauri/target/release/bundle/nsis/`（`*setup.exe`）。安装后冒烟：登录 → 大厅 → 加入会议 → 音视频（打到生产 HotGo）。
+产物在 `src-tauri/target/release/bundle/nsis/`（`*setup.exe`）。安装程序会把生产自签证书写入当前用户的受信任根存储；轮换证书时需替换 `src-tauri/windows/prod-17885.cer` 后重新打包。安装后冒烟：登录 → 大厅 → 加入会议 → 音视频（打到生产 HotGo）。
 
 LiveKit 信令解析单测（不依赖 Windows）：
 

@@ -35,8 +35,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": {
+      "windows/prod-17885.cer": "resources/prod-17885.cer"
+    },
     "macOS": {
       "infoPlist": "Info.plist"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsh"
+      }
     }
   }
 }
